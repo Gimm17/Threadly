@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/*
+ * ThreadsAI Design System — Gimora Digital
+ * Based on DESIGN.md tokens + Material Design 3 color semantics
+ */
+@theme {
+  /* ─── Color Palette ─── */
+  --color-surface: #faf8ff;
+  --color-surface-dim: #cdd9ff;
+  --color-surface-bright: #faf8ff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f3ff;
+  --color-surface-container: #eaedff;
+  --color-surface-container-high: #e1e7ff;
+  --color-surface-container-highest: #d9e2ff;
+
+  --color-on-surface: #001945;
+  --color-on-surface-variant: #504538;
+  --color-inverse-surface: #162e5f;
+  --color-inverse-on-surface: #eef0ff;
+
+  --color-outline: #827566;
+  --color-outline-variant: #d4c4b2;
+
+  --color-primary: #805606;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #ffc570;
+  --color-on-primary-container: #795000;
+  --color-inverse-primary: #f5bc68;
+  --color-primary-fixed: #ffddb2;
+  --color-primary-fixed-dim: #f5bc68;
+
+  --color-secondary: #3f627c;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #badefd;
+  --color-on-secondary-container: #40637d;
+  --color-secondary-fixed: #cae6ff;
+  --color-secondary-fixed-dim: #a7cbe9;
+
+  --color-tertiary: #705b40;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #e7cba9;
+  --color-on-tertiary-container: #6a553a;
+  --color-tertiary-fixed: #fbdebb;
+  --color-tertiary-fixed-dim: #dec2a1;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-background: #faf8ff;
+  --color-on-background: #001945;
+  --color-surface-variant: #d9e2ff;
+  --color-surface-tint: #805606;
+
+  /* ─── Sidebar-specific colors ─── */
+  --color-sidebar-bg: #1a3263;
+  --color-sidebar-text: #94a3b8;
+  --color-sidebar-text-active: #ffc570;
+  --color-sidebar-hover: rgba(255, 255, 255, 0.05);
+  --color-sidebar-active-bg: rgba(255, 255, 255, 0.10);
+
+  /* ─── Semantic status colors ─── */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  /* ─── Typography ─── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display-metric: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* ─── Font Size Scale ─── */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 2rem;
+  --text-2xl--line-height: 2.5rem;
+
+  /* ─── Spacing (8px base grid) ─── */
+  --spacing-xs: 4px;
+  --spacing-sm: 12px;
+  --spacing-md: 24px;
+  --spacing-lg: 32px;
+  --spacing-xl: 48px;
+  --spacing-card: 24px;
+  --spacing-sidebar: 260px;
+
+  /* ─── Border Radius ─── */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* ─── Shadows ─── */
+  --shadow-card: 0 4px 12px rgba(26, 50, 99, 0.04);
+  --shadow-elevated: 0 8px 24px rgba(26, 50, 99, 0.08);
+}
+
+/* ─── Base Styles ─── */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+  }
+}
+
+/* ─── Utility Classes ─── */
+@layer utilities {
+  .text-display-metric {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .text-headline-lg {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .text-headline-md {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+  }
+
+  .text-body-lg {
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+  }
+
+  .text-body-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+  }
+
+  .text-label-caps {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* Card component utility */
+  .card {
+    background-color: var(--color-surface-container-lowest);
+    border: 1px solid color-mix(in srgb, var(--color-outline-variant) 50%, transparent);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Scrollbar styling */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-outline-variant) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-outline-variant);
+    border-radius: var(--radius-full);
+  }
+}
+
+/* ─── Transitions ─── */
+@layer utilities {
+  .transition-default {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+  }
+}
