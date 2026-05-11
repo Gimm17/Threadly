@@ -51,3 +51,12 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
             Route::put('ai-models/{config}', [AiModelConfigController::class, 'update'])->name('ai-models.update');
         });
     });
+
+// Meta Threads Webhook Dummy Callbacks
+Route::any('/auth/threads/deauthorize', function () {
+    return response()->json(['success' => true]);
+});
+
+Route::any('/auth/threads/delete-data', function () {
+    return response()->json(['success' => true]);
+});
