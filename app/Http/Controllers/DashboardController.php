@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Models\HookTemplate;
 use App\Models\Post;
 use App\Services\AnalyticsService;
+use App\Services\InsightService;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -14,6 +15,7 @@ class DashboardController extends Controller
 {
     public function __construct(
         private readonly AnalyticsService $analyticsService,
+        private readonly InsightService $insightService,
     ) {}
 
     public function index(): Response
@@ -48,26 +50,7 @@ class DashboardController extends Controller
                     'view_count' => $hook->view_count,
                     'category' => $hook->category,
                 ]),
-            'insights' => [
-                [
-                    'type' => 'success',
-                    'icon' => 'trending-up',
-                    'title' => 'Waktu Posting Optimal',
-                    'body' => 'Rekomendasi posting hari ini pada pukul 19:00 WIB untuk engagement maksimal.',
-                ],
-                [
-                    'type' => 'info',
-                    'icon' => 'bulb',
-                    'title' => 'Topik Trending',
-                    'body' => 'Audiens merespon positif konten edukasi seputar "AI Tools". Perbanyak pilar ini.',
-                ],
-                [
-                    'type' => 'warning',
-                    'icon' => 'alert-triangle',
-                    'title' => 'Penurunan Reach',
-                    'body' => 'Postingan hari Selasa mengalami penurunan reach 12%. Evaluasi ulang hashtag.',
-                ],
-            ],
+            'insights' => $this->insightService->getDailyInsights($workspaceId),
         ]);
     }
 }

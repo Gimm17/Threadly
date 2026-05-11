@@ -68,7 +68,7 @@ class AnalyticsService
             'datasets' => [
                 [
                     'label' => 'Engagement',
-                    'data' => $snapshots->pluck('engagement')->toArray(),
+                    'data' => $snapshots->pluck('engagement_rate')->toArray(),
                 ],
             ],
         ];

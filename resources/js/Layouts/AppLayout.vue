@@ -28,8 +28,8 @@ const navItems = [
     { name: 'Hook Generator', route: null, icon: IconSparkles, v2: true },
     { name: 'Copywriting AI', route: null, icon: IconFileText, v2: true },
     { name: 'Image Studio', route: null, icon: IconPhoto, v2: true },
-    { name: 'Analytics', route: null, icon: IconChartLine, v2: true },
-    { name: 'Settings', route: 'settings.ai-models', icon: IconSettings },
+    { name: 'Analytics', route: 'analytics', icon: IconChartLine },
+    { name: 'Settings', route: 'settings.general', icon: IconSettings },
 ];
 
 const isActive = (item) => {

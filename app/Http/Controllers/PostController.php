@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StorePostRequest;
+use App\Models\ActivityLog;
 use App\Models\ContentPillar;
 use App\Models\Post;
 use App\Services\MediaUploadService;
@@ -77,6 +78,8 @@ class PostController extends Controller
             }
         }
 
+        $this->logActivity('created', $post);
+
         return redirect()->route('posts.index')
             ->with('success', 'Post berhasil dibuat.');
     }
@@ -115,12 +118,18 @@ class PostController extends Controller
             }
         }
 
+        $this->logActivity('updated', $post);
+
         return redirect()->route('posts.index')
             ->with('success', 'Post berhasil diperbarui.');
     }
 
     public function destroy(Post $post): RedirectResponse
     {
+        $this->logActivity('deleted', $post, [
+            'body' => mb_substr($post->body, 0, 100),
+        ]);
+
         $post->delete();
 
         return redirect()->route('posts.index')
@@ -134,6 +143,8 @@ class PostController extends Controller
             'published_at' => now(),
         ]);
 
+        $this->logActivity('published', $post);
+
         return redirect()->back()
             ->with('success', 'Post ditandai sebagai Published.');
     }
@@ -142,7 +153,26 @@ class PostController extends Controller
     {
         $post->update(['status' => 'cancelled']);
 
+        $this->logActivity('cancelled', $post);
+
         return redirect()->back()
             ->with('success', 'Post dibatalkan.');
+    }
+
+    // ─── Helpers ───
+
+    private function logActivity(string $action, Post $post, array $extra = []): void
+    {
+        ActivityLog::create([
+            'workspace_id' => $post->workspace_id ?? auth()->user()?->workspace_id,
+            'user_id' => auth()->id(),
+            'action' => $action,
+            'subject_type' => Post::class,
+            'subject_id' => $post->id,
+            'properties' => array_filter([
+                'status' => $post->status,
+                ...$extra,
+            ]),
+        ]);
     }
 }

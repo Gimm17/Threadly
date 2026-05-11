@@ -1,8 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { IconSparkles, IconAlignLeft, IconUpload, IconCheck, IconEye } from '@tabler/icons-vue';
+import { IconSparkles, IconHash, IconAlignLeft, IconUpload, IconCheck, IconEye, IconLoader2 } from '@tabler/icons-vue';
 
 const props = defineProps({
     post: { type: Object, required: true },
@@ -26,6 +26,119 @@ const bodyCount = computed(() => form.body.length);
 const submit = (status) => {
     form.status = status;
     form.put(route('posts.update', props.post.id));
+};
+
+// ── AI Integration ──
+const aiLoading = ref('');
+const aiError = ref('');
+
+const generateHook = async () => {
+    if (!form.body && !form.hook) {
+        aiError.value = 'Tulis isi post atau topik terlebih dahulu.';
+        setTimeout(() => aiError.value = '', 3000);
+        return;
+    }
+    aiLoading.value = 'hook';
+    aiError.value = '';
+    try {
+        const pillar = props.pillars.find(p => p.id === form.content_pillar_id);
+        const res = await fetch(route('ai.generate-hook'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                topic: form.body || form.hook,
+                pillar: pillar?.name || null,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            form.hook = data.hook;
+        } else {
+            aiError.value = data.message || 'Gagal generate hook.';
+            setTimeout(() => aiError.value = '', 4000);
+        }
+    } catch (e) {
+        aiError.value = 'Koneksi AI gagal. Coba lagi.';
+        setTimeout(() => aiError.value = '', 4000);
+    } finally {
+        aiLoading.value = '';
+    }
+};
+
+const improveText = async () => {
+    if (!form.body) {
+        aiError.value = 'Tulis isi post terlebih dahulu.';
+        setTimeout(() => aiError.value = '', 3000);
+        return;
+    }
+    aiLoading.value = 'improve';
+    aiError.value = '';
+    try {
+        const res = await fetch(route('ai.improve-text'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                text: form.body,
+                instruction: 'Perbaiki tata bahasa dan buat lebih engaging untuk Threads',
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            form.body = data.text;
+        } else {
+            aiError.value = data.message || 'Gagal memperbaiki teks.';
+            setTimeout(() => aiError.value = '', 4000);
+        }
+    } catch (e) {
+        aiError.value = 'Koneksi AI gagal. Coba lagi.';
+        setTimeout(() => aiError.value = '', 4000);
+    } finally {
+        aiLoading.value = '';
+    }
+};
+
+const suggestHashtags = async () => {
+    if (!form.body) {
+        aiError.value = 'Tulis isi post terlebih dahulu.';
+        setTimeout(() => aiError.value = '', 3000);
+        return;
+    }
+    aiLoading.value = 'hashtag';
+    aiError.value = '';
+    try {
+        const res = await fetch(route('ai.improve-text'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                text: form.body,
+                instruction: 'Tambahkan 3-5 hashtag yang relevan di akhir teks. Jangan ubah isi teks utama, hanya tambahkan hashtag.',
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            form.body = data.text;
+        } else {
+            aiError.value = data.message || 'Gagal generate hashtag.';
+            setTimeout(() => aiError.value = '', 4000);
+        }
+    } catch (e) {
+        aiError.value = 'Koneksi AI gagal. Coba lagi.';
+        setTimeout(() => aiError.value = '', 4000);
+    } finally {
+        aiLoading.value = '';
+    }
 };
 </script>
 
@@ -94,6 +207,48 @@ const submit = (status) => {
                 </div>
             </div>
             <div class="space-y-6">
+                <!-- AI Assistant -->
+                <div class="card">
+                    <h3 class="text-headline-md text-on-background mb-4 flex items-center gap-2">
+                        <IconSparkles :size="20" class="text-primary-container" :stroke-width="1.5" /> AI Assistant
+                    </h3>
+
+                    <div v-if="aiError" class="mb-3 px-3 py-2 bg-error/10 text-error text-sm rounded-lg">
+                        {{ aiError }}
+                    </div>
+
+                    <div class="space-y-2">
+                        <button
+                            @click="generateHook"
+                            :disabled="aiLoading !== ''"
+                            class="w-full text-left px-3 py-2 rounded-lg bg-primary-container/20 text-primary text-sm font-medium hover:bg-primary-container/30 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            <IconLoader2 v-if="aiLoading === 'hook'" :size="16" :stroke-width="1.5" class="animate-spin" />
+                            <IconSparkles v-else :size="16" :stroke-width="1.5" />
+                            {{ aiLoading === 'hook' ? 'Generating...' : 'Generate Hook' }}
+                        </button>
+                        <button
+                            @click="improveText"
+                            :disabled="aiLoading !== ''"
+                            class="w-full text-left px-3 py-2 rounded-lg bg-secondary/10 text-secondary text-sm font-medium hover:bg-secondary/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            <IconLoader2 v-if="aiLoading === 'improve'" :size="16" :stroke-width="1.5" class="animate-spin" />
+                            <IconAlignLeft v-else :size="16" :stroke-width="1.5" />
+                            {{ aiLoading === 'improve' ? 'Improving...' : 'Perbaiki Tata Bahasa' }}
+                        </button>
+                        <button
+                            @click="suggestHashtags"
+                            :disabled="aiLoading !== ''"
+                            class="w-full text-left px-3 py-2 rounded-lg bg-tertiary/10 text-tertiary text-sm font-medium hover:bg-tertiary/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            <IconLoader2 v-if="aiLoading === 'hashtag'" :size="16" :stroke-width="1.5" class="animate-spin" />
+                            <IconHash v-else :size="16" :stroke-width="1.5" />
+                            {{ aiLoading === 'hashtag' ? 'Generating...' : 'Saran Hashtag' }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Preview -->
                 <div class="card">
                     <h3 class="text-headline-md text-on-background mb-4 flex items-center gap-2">
                         <IconEye :size="20" :stroke-width="1.5" /> Preview
