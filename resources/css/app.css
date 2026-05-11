@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/forms";
 
 /*
  * ThreadsAI Design System — Gimora Digital
@@ -85,12 +86,7 @@
   --text-2xl: 2rem;
   --text-2xl--line-height: 2.5rem;
 
-  /* ─── Spacing (8px base grid) ─── */
-  --spacing-xs: 4px;
-  --spacing-sm: 12px;
-  --spacing-md: 24px;
-  --spacing-lg: 32px;
-  --spacing-xl: 48px;
+  /* ─── Custom Spacing ─── */
   --spacing-card: 24px;
   --spacing-sidebar: 260px;
 
