@@ -44,6 +44,7 @@ class AiModelConfig extends Model
             'hook_generator' => 'Hook Generator',
             'copywriting' => 'Copywriting AI',
             'image_generation' => 'Image Generation',
+            'insight' => 'Daily Insights',
             default => ucfirst(str_replace('_', ' ', $this->feature)),
         };
     }
@@ -54,6 +55,7 @@ class AiModelConfig extends Model
             'hook_generator' => 'sparkles',
             'copywriting' => 'file-text',
             'image_generation' => 'photo',
+            'insight' => 'bulb',
             default => 'settings',
         };
     }

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StorePostRequest;
+use App\Jobs\PublishToThreadsJob;
 use App\Models\ActivityLog;
 use App\Models\ContentPillar;
 use App\Models\Post;
 use App\Services\MediaUploadService;
+use App\Services\ThreadsApiService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -157,6 +159,32 @@ class PostController extends Controller
 
         return redirect()->back()
             ->with('success', 'Post dibatalkan.');
+    }
+
+    /**
+     * Publish a post directly to Threads via API.
+     */
+    public function publishToThreads(Post $post): RedirectResponse
+    {
+        $workspace = auth()->user()->workspace ?? null;
+
+        if (!$workspace || empty($workspace->threads_access_token)) {
+            return redirect()->back()
+                ->with('error', 'Threads API belum dikonfigurasi. Tambahkan access token di Settings.');
+        }
+
+        if ($post->status === 'published') {
+            return redirect()->back()
+                ->with('error', 'Post sudah dipublish sebelumnya.');
+        }
+
+        // Dispatch job to publish async
+        PublishToThreadsJob::dispatch($post);
+
+        $this->logActivity('publish_queued', $post);
+
+        return redirect()->back()
+            ->with('success', 'Post sedang dipublish ke Threads... Anda akan mendapat notifikasi setelah selesai.');
     }
 
     // ─── Helpers ───

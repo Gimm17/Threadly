@@ -1,7 +1,11 @@
 <script setup>
-import { Head, useForm, Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
+import { Head, useForm, Link, usePage } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { IconSettings, IconPlus, IconDeviceFloppy, IconBrandThreads, IconClock, IconWorld } from '@tabler/icons-vue';
+
+const page = usePage();
+const isAdmin = computed(() => ['owner', 'admin'].includes(page.props.auth?.user?.role));
 
 const props = defineProps({
     workspace: { type: Object, required: true },
@@ -40,6 +44,7 @@ const submit = () => {
                 Umum
             </Link>
             <Link
+                v-if="isAdmin"
                 :href="route('settings.ai-models')"
                 class="px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline transition-colors"
             >

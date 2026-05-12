@@ -32,7 +32,7 @@ class AiAssistController extends Controller
             $prompt .= "\n\nKriteria hook yang baik:\n- Singkat (maksimal 2 kalimat)\n- Membuat penasaran\n- Relevan dengan audiens Indonesia\n- Tidak clickbait\n\nHANYA output hook-nya saja, tanpa penjelasan atau tanda kutip.";
 
             $result = $this->aiService->complete(
-                feature: 'hook_gen',
+                feature: 'hook_generator',
                 userPrompt: $prompt,
                 systemPrompt: 'Kamu adalah copywriter ahli untuk platform Threads (Meta). Buatkan hook yang engaging dalam bahasa Indonesia.',
             );

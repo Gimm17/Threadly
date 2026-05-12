@@ -14,6 +14,7 @@ import {
     IconMenu2,
     IconX,
 } from '@tabler/icons-vue';
+import NotificationBell from '@/Components/NotificationBell.vue';
 
 const page = usePage();
 const currentRoute = computed(() => route().current());
@@ -25,9 +26,9 @@ const navItems = [
     { name: 'Dashboard', route: 'dashboard', icon: IconLayoutDashboard },
     { name: 'Content Planner', route: 'content-planner', icon: IconCalendarEvent },
     { name: 'Post Scheduler', route: 'posts.index', icon: IconClock },
-    { name: 'Hook Generator', route: null, icon: IconSparkles, v2: true },
-    { name: 'Copywriting AI', route: null, icon: IconFileText, v2: true },
-    { name: 'Image Studio', route: null, icon: IconPhoto, v2: true },
+    { name: 'Hook Generator', route: 'hooks.index', icon: IconSparkles },
+    { name: 'Copywriting AI', route: 'copywriting.index', icon: IconFileText },
+    { name: 'Image Studio', route: 'image-studio.index', icon: IconPhoto },
     { name: 'Analytics', route: 'analytics', icon: IconChartLine },
     { name: 'Settings', route: 'settings.general', icon: IconSettings },
 ];
@@ -121,6 +122,7 @@ const flash = computed(() => page.props.flash || {});
                 </div>
 
                 <div class="flex items-center gap-3">
+                    <NotificationBell />
                     <slot name="actions" />
                 </div>
             </header>

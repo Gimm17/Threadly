@@ -1,8 +1,10 @@
 <?php
 
 use App\Jobs\GenerateDailyInsightsJob;
+use App\Jobs\PublishToThreadsJob;
 use App\Jobs\SendPostReminderJob;
 use App\Models\Post;
+use App\Models\Workspace;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -43,6 +45,26 @@ Schedule::call(function () {
 Schedule::job(new GenerateDailyInsightsJob)
     ->dailyAt('07:00')
     ->name('generate-daily-insights')
+    ->withoutOverlapping();
+
+// Auto-publish scheduled posts via Threads API when scheduled_at arrives
+Schedule::call(function () {
+    $posts = Post::withoutGlobalScopes()
+        ->where('status', 'scheduled')
+        ->where('publish_mode', 'api')
+        ->where('scheduled_at', '<=', now())
+        ->get();
+
+    foreach ($posts as $post) {
+        // Verify workspace has access token before dispatching
+        $workspace = Workspace::find($post->workspace_id);
+        if ($workspace && !empty($workspace->threads_access_token)) {
+            PublishToThreadsJob::dispatch($post);
+        }
+    }
+})
+    ->everyMinute()
+    ->name('auto-publish-threads')
     ->withoutOverlapping();
 
 // Prune failed jobs older than 7 days

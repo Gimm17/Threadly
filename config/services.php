@@ -42,7 +42,7 @@ return [
     */
     'tokenrouter' => [
         'key' => env('TOKENROUTER_API_KEY'),
-        'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.ai/v1'),
+        'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.com/v1'),
     ],
 
     /*

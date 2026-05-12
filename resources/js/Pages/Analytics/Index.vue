@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, useForm, router } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import EngagementChart from '@/Components/Dashboard/EngagementChart.vue';
 import MetricCard from '@/Components/Dashboard/MetricCard.vue';
@@ -12,13 +12,26 @@ import {
     IconUpload,
     IconX,
     IconCalendarEvent,
+    IconRefresh,
 } from '@tabler/icons-vue';
 
 const props = defineProps({
     snapshots: { type: Object, default: () => [] },
     metrics: { type: Object, required: true },
     chartData: { type: Object, required: true },
+    hasApiAccess: { type: Boolean, default: false },
 });
+
+const syncing = ref(false);
+
+const syncFromApi = () => {
+    syncing.value = true;
+    router.post(route('analytics.sync'), {}, {
+        onFinish: () => {
+            syncing.value = false;
+        },
+    });
+};
 
 const showForm = ref(false);
 
@@ -56,13 +69,24 @@ const formatNumber = (n) => {
             <h2 class="text-headline-md font-bold text-primary">Analytics</h2>
         </template>
         <template #actions>
-            <button
-                @click="showForm = !showForm"
-                class="flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold text-label-caps px-4 py-2 rounded-lg hover:brightness-105 transition-all"
-            >
-                <IconUpload :size="16" :stroke-width="2" />
-                Input Data
-            </button>
+            <div class="flex items-center gap-2">
+                <button
+                    v-if="hasApiAccess"
+                    @click="syncFromApi"
+                    :disabled="syncing"
+                    class="flex items-center gap-1.5 bg-secondary-container text-on-secondary-container font-bold text-label-caps px-4 py-2 rounded-lg hover:brightness-105 transition-all disabled:opacity-50"
+                >
+                    <IconRefresh :size="16" :stroke-width="2" :class="{ 'animate-spin': syncing }" />
+                    {{ syncing ? 'Syncing...' : 'Sync dari API' }}
+                </button>
+                <button
+                    @click="showForm = !showForm"
+                    class="flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold text-label-caps px-4 py-2 rounded-lg hover:brightness-105 transition-all"
+                >
+                    <IconUpload :size="16" :stroke-width="2" />
+                    Input Data
+                </button>
+            </div>
         </template>
 
         <!-- Metrics Grid -->

@@ -8,6 +8,7 @@ import {
     IconChevronLeft,
     IconChevronRight,
     IconDotsVertical,
+    IconArrowRight,
 } from '@tabler/icons-vue';
 
 const props = defineProps({
@@ -248,6 +249,14 @@ const submitPillar = () => {
                         </div>
                         <h4 class="text-sm font-semibold text-on-background mb-0.5">{{ idea.title }}</h4>
                         <p class="text-body-sm text-on-surface-variant">{{ idea.content_pillar?.name }}</p>
+                        <button
+                            v-if="idea.status === 'draft'"
+                            @click="router.post(route('content-ideas.to-post', idea.id))"
+                            class="mt-2 w-full flex items-center justify-center gap-1 text-xs font-semibold text-secondary hover:text-secondary/80 border border-secondary/30 rounded-lg py-1.5 hover:bg-secondary/5 transition-colors"
+                        >
+                            <IconArrowRight :size="14" :stroke-width="2" />
+                            Jadikan Post
+                        </button>
                     </div>
                 </div>
 
