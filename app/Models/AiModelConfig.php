@@ -29,14 +29,14 @@ class AiModelConfig extends Model
         'is_active' => 'boolean',
     ];
 
-    // ─── Relationships ───
+    // Relationships
 
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
     }
 
-    // ─── Accessors ───
+    // Accessors
 
     public function getFeatureLabelAttribute(): string
     {

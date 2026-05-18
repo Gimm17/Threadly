@@ -43,6 +43,7 @@ return [
     'tokenrouter' => [
         'key' => env('TOKENROUTER_API_KEY'),
         'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.com/v1'),
+        'verify_ssl' => env('TOKENROUTER_VERIFY_SSL', true),
     ],
 
     /*
@@ -54,6 +55,7 @@ return [
         'app_id' => env('THREADS_APP_ID'),
         'app_secret' => env('THREADS_APP_SECRET'),
         'redirect_uri' => env('THREADS_REDIRECT_URI'),
+        'verify_ssl' => env('THREADS_VERIFY_SSL', true),
     ],
 
 ];

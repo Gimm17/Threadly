@@ -23,11 +23,20 @@ class GeneratedMedia extends Model
         'mime_type',
         'file_size',
         'prompt',
+        'original_prompt',
+        'enhanced_prompt',
+        'negative_prompt',
         'provider',
         'model_id',
         'style',
         'aspect_ratio',
         'generation_mode',
+        'model_params',
+        'overlay_config',
+        'prompt_template_version',
+        'generation_status',
+        'estimated_cost',
+        'error_message',
         'post_id',
         'is_favorite',
     ];
@@ -37,9 +46,12 @@ class GeneratedMedia extends Model
     protected $casts = [
         'file_size' => 'integer',
         'is_favorite' => 'boolean',
+        'model_params' => 'array',
+        'overlay_config' => 'array',
+        'estimated_cost' => 'decimal:6',
     ];
 
-    // ─── Relationships ───
+    // Relationships
 
     public function workspace(): BelongsTo
     {
@@ -56,10 +68,14 @@ class GeneratedMedia extends Model
         return $this->belongsTo(Post::class);
     }
 
-    // ─── Accessors ───
+    // Accessors
 
     public function getUrlAttribute(): string
     {
+        if (blank($this->file_path)) {
+            return '';
+        }
+
         return asset('storage/' . $this->file_path);
     }
 }

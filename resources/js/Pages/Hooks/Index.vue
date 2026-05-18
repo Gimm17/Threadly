@@ -46,15 +46,19 @@ const genForm = useForm({
     count: 5,
 });
 const generating = ref(false);
+const generateError = ref('');
 const submitGenerate = () => {
     generating.value = true;
+    generateError.value = '';
     axios.post(route('hooks.generate'), genForm.data())
         .then(() => {
             showGenerate.value = false;
             genForm.reset();
             router.reload();
         })
-        .catch(() => {})
+        .catch((error) => {
+            generateError.value = error.response?.data?.message || 'Gagal generate hook AI. Cek konfigurasi TokenRouter.';
+        })
         .finally(() => { generating.value = false; });
 };
 
@@ -107,7 +111,7 @@ const scoreBg = (score) => {
 
         <template #actions>
             <button
-                @click="showGenerate = true"
+                @click="showGenerate = true; generateError = ''"
                 class="flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold text-label-caps px-4 py-2 rounded-lg hover:brightness-105 transition-all"
             >
                 <IconSparkles :size="16" :stroke-width="2" />
@@ -248,7 +252,7 @@ const scoreBg = (score) => {
             <h3 class="text-lg font-semibold text-on-background mb-2">Belum ada hook</h3>
             <p class="text-sm text-on-surface-variant mb-6">Mulai dengan generate hook AI atau tambah hook manual.</p>
             <button
-                @click="showGenerate = true"
+                @click="showGenerate = true; generateError = ''"
                 class="inline-flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold px-6 py-2.5 rounded-lg hover:brightness-105 transition-all"
             >
                 <IconSparkles :size="16" :stroke-width="2" />
@@ -301,6 +305,9 @@ const scoreBg = (score) => {
                                 <label class="text-body-sm font-semibold text-on-background block mb-1">Jumlah</label>
                                 <input v-model="genForm.count" type="number" min="1" max="10" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm text-center focus:ring-2 focus:ring-secondary outline-none" />
                             </div>
+                        </div>
+                        <div v-if="generateError" class="rounded-lg border border-error-container/60 bg-error-container px-3 py-2 text-sm font-medium text-on-error-container">
+                            {{ generateError }}
                         </div>
                         <div class="flex gap-3 pt-2">
                             <button type="button" @click="showGenerate = false" class="flex-1 py-2 rounded-lg border border-outline-variant text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors">Batal</button>

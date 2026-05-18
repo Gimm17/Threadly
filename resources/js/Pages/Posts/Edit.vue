@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
-import { IconSparkles, IconHash, IconAlignLeft, IconUpload, IconCheck, IconEye, IconLoader2 } from '@tabler/icons-vue';
+import { IconSparkles, IconHash, IconAlignLeft, IconUpload, IconEye, IconLoader2, IconPhoto, IconVideo, IconX } from '@tabler/icons-vue';
 
 const props = defineProps({
     post: { type: Object, required: true },
@@ -22,15 +22,81 @@ const form = useForm({
 
 const hookCount = computed(() => form.hook.length);
 const bodyCount = computed(() => form.body.length);
+const fileInput = ref(null);
+const isDragging = ref(false);
+const mediaError = ref('');
+const mediaPreviews = ref([]);
+const existingMedia = computed(() => props.post.media ?? []);
 
 const submit = (status) => {
     form.status = status;
-    form.put(route('posts.update', props.post.id));
+    form.put(route('posts.update', props.post.id), {
+        forceFormData: true,
+    });
+};
+
+const addMediaFiles = (fileList) => {
+    mediaError.value = '';
+    const files = Array.from(fileList || []);
+    const availableSlots = Math.max(0, 4 - existingMedia.value.length - form.media.length);
+
+    if (availableSlots <= 0) {
+        mediaError.value = 'Maksimal 4 media per post.';
+        return;
+    }
+
+    if (files.length > availableSlots) {
+        mediaError.value = `Hanya ${availableSlots} file lagi yang bisa ditambahkan.`;
+    }
+
+    files.slice(0, availableSlots).forEach((file) => {
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+        form.media.push(file);
+        mediaPreviews.value.push({
+            id: `${file.name}-${file.lastModified}-${file.size}`,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            url: previewUrl,
+        });
+    });
+
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
+};
+
+const handleFileChange = (event) => {
+    addMediaFiles(event.target.files);
+};
+
+const removeMedia = (index) => {
+    const [preview] = mediaPreviews.value.splice(index, 1);
+    if (preview?.url) {
+        URL.revokeObjectURL(preview.url);
+    }
+    form.media.splice(index, 1);
+};
+
+const chooseFiles = () => {
+    fileInput.value?.click();
+};
+
+const dropFiles = (event) => {
+    isDragging.value = false;
+    addMediaFiles(event.dataTransfer?.files);
+};
+
+const fileSizeLabel = (bytes) => {
+    if (!bytes) return '0 KB';
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 // ── AI Integration ──
 const aiLoading = ref('');
 const aiError = ref('');
+const hookSuggestions = ref([]);
 
 const generateHook = async () => {
     if (!form.body && !form.hook) {
@@ -42,7 +108,7 @@ const generateHook = async () => {
     aiError.value = '';
     try {
         const pillar = props.pillars.find(p => p.id === form.content_pillar_id);
-        const res = await fetch(route('ai.generate-hook'), {
+        const res = await fetch(route('ai.content-assist'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -56,7 +122,8 @@ const generateHook = async () => {
         });
         const data = await res.json();
         if (data.success) {
-            form.hook = data.hook;
+            hookSuggestions.value = data.assist?.hooks || [];
+            form.hook = hookSuggestions.value[0]?.hook || '';
         } else {
             aiError.value = data.message || 'Gagal generate hook.';
             setTimeout(() => aiError.value = '', 4000);
@@ -78,7 +145,7 @@ const improveText = async () => {
     aiLoading.value = 'improve';
     aiError.value = '';
     try {
-        const res = await fetch(route('ai.improve-text'), {
+        const res = await fetch(route('ai.generate-hashtags'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -123,12 +190,13 @@ const suggestHashtags = async () => {
             },
             body: JSON.stringify({
                 text: form.body,
-                instruction: 'Tambahkan 3-5 hashtag yang relevan di akhir teks. Jangan ubah isi teks utama, hanya tambahkan hashtag.',
             }),
         });
         const data = await res.json();
         if (data.success) {
-            form.body = data.text;
+            const hashtags = data.hashtags || [];
+            const withoutExisting = form.body.replace(/\n?\s*(#[\p{L}\p{N}_]+\s*)+$/u, '').trim();
+            form.body = [withoutExisting, hashtags.join(' ')].filter(Boolean).join('\n\n').slice(0, 500);
         } else {
             aiError.value = data.message || 'Gagal generate hashtag.';
             setTimeout(() => aiError.value = '', 4000);
@@ -190,8 +258,76 @@ const suggestHashtags = async () => {
                     </div>
                 </div>
                 <div class="card">
-                    <h3 class="text-headline-md text-on-background mb-4">Jadwal</h3>
-                    <div class="grid grid-cols-2 gap-4">
+                    <h3 class="text-headline-md text-on-background mb-4 flex items-center gap-2">
+                        <IconUpload :size="20" class="text-primary" :stroke-width="1.5" /> Media & Jadwal
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-body-sm font-semibold text-on-background block mb-2">Upload Media Baru</label>
+                            <input
+                                ref="fileInput"
+                                type="file"
+                                multiple
+                                accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime"
+                                class="hidden"
+                                @change="handleFileChange"
+                            />
+                            <div
+                                :class="[
+                                    'border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer',
+                                    isDragging ? 'border-secondary bg-secondary/5' : 'border-outline-variant/50 hover:border-secondary',
+                                ]"
+                                @click="chooseFiles"
+                                @dragover.prevent="isDragging = true"
+                                @dragleave.prevent="isDragging = false"
+                                @drop.prevent="dropFiles"
+                            >
+                                <IconUpload :size="28" class="mx-auto text-on-surface-variant/50 mb-2" :stroke-width="1" />
+                                <p class="text-sm text-on-surface-variant">Klik untuk upload atau drag & drop</p>
+                                <p class="text-xs text-on-surface-variant/70 mt-1">JPG, PNG, GIF, MP4, MOV. Total maksimal 4 media.</p>
+                            </div>
+                            <p v-if="mediaError" class="text-xs text-error mt-2">{{ mediaError }}</p>
+                            <p v-if="form.errors.media" class="text-xs text-error mt-2">{{ form.errors.media }}</p>
+                            <div v-if="existingMedia.length || mediaPreviews.length" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div
+                                    v-for="media in existingMedia"
+                                    :key="`existing-${media.id}`"
+                                    class="flex items-center gap-3 rounded-lg border border-outline-variant p-3 bg-surface-container-low"
+                                >
+                                    <div class="w-12 h-12 rounded-md bg-surface-container flex items-center justify-center overflow-hidden shrink-0">
+                                        <img v-if="media.type !== 'video'" :src="media.url" alt="" class="w-full h-full object-cover" />
+                                        <IconVideo v-else :size="22" class="text-on-surface-variant" :stroke-width="1.5" />
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium text-on-background truncate">{{ media.file_name || 'Media lama' }}</p>
+                                        <p class="text-xs text-on-surface-variant">Sudah tersimpan</p>
+                                    </div>
+                                </div>
+                                <div
+                                    v-for="(media, index) in mediaPreviews"
+                                    :key="media.id"
+                                    class="flex items-center gap-3 rounded-lg border border-outline-variant p-3 bg-surface-container-low"
+                                >
+                                    <div class="w-12 h-12 rounded-md bg-surface-container flex items-center justify-center overflow-hidden shrink-0">
+                                        <img v-if="media.url" :src="media.url" alt="" class="w-full h-full object-cover" />
+                                        <IconVideo v-else-if="media.type.startsWith('video/')" :size="22" class="text-on-surface-variant" :stroke-width="1.5" />
+                                        <IconPhoto v-else :size="22" class="text-on-surface-variant" :stroke-width="1.5" />
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium text-on-background truncate">{{ media.name }}</p>
+                                        <p class="text-xs text-on-surface-variant">{{ fileSizeLabel(media.size) }}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="w-8 h-8 rounded-md flex items-center justify-center text-on-surface-variant hover:bg-surface-container"
+                                        @click.stop="removeMedia(index)"
+                                    >
+                                        <IconX :size="16" :stroke-width="1.8" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="text-body-sm font-semibold text-on-background block mb-1">Tanggal & Waktu</label>
                             <input v-model="form.scheduled_at" type="datetime-local" class="w-full border border-outline-variant rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-secondary outline-none" />
@@ -203,6 +339,7 @@ const suggestHashtags = async () => {
                                 <button @click="form.publish_mode = 'manual'" :class="['flex-1 py-2.5 text-sm font-medium transition-colors', form.publish_mode === 'manual' ? 'bg-surface-container text-on-background' : 'text-on-surface-variant']">Manual</button>
                             </div>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -227,6 +364,17 @@ const suggestHashtags = async () => {
                             <IconSparkles v-else :size="16" :stroke-width="1.5" />
                             {{ aiLoading === 'hook' ? 'Generating...' : 'Generate Hook' }}
                         </button>
+                        <div v-if="hookSuggestions.length" class="space-y-1 pt-2">
+                            <button
+                                v-for="suggestion in hookSuggestions"
+                                :key="suggestion.hook"
+                                type="button"
+                                class="w-full text-left px-3 py-2 rounded-lg border border-outline-variant/50 text-xs text-on-surface-variant hover:text-on-background hover:bg-surface-container-low"
+                                @click="form.hook = suggestion.hook"
+                            >
+                                {{ suggestion.hook }}
+                            </button>
+                        </div>
                         <button
                             @click="improveText"
                             :disabled="aiLoading !== ''"

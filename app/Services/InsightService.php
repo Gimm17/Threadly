@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\AnalyticsSnapshot;
 use App\Models\Post;
 use App\Models\Workspace;
+use App\Services\AI\JsonResponseParser;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -14,6 +15,7 @@ class InsightService
 {
     public function __construct(
         private readonly AIService $aiService,
+        private readonly JsonResponseParser $jsonParser,
     ) {}
 
     /**
@@ -128,6 +130,9 @@ class InsightService
             'week_ago_followers' => $weekAgoSnapshot?->followers_count ?? 0,
             'week_ago_impressions' => $weekAgoSnapshot?->impressions ?? 0,
             'week_ago_engagement_rate' => $weekAgoSnapshot?->engagement_rate ?? 0,
+            'latest_likes' => $latestSnapshot?->likes ?? 0,
+            'latest_replies' => $latestSnapshot?->replies ?? 0,
+            'latest_reposts' => $latestSnapshot?->reposts ?? 0,
         ];
     }
 
@@ -139,13 +144,14 @@ class InsightService
             : 0;
 
         return <<<PROMPT
-        Berdasarkan data performa akun Threads dalam 7 hari terakhir:
+        Ringkasan data performa akun Threads dalam 7 hari terakhir:
         - Post yang dipublish: {$data['recent_published']}
         - Post terjadwal: {$data['scheduled_count']}
         - Post draft: {$data['draft_count']}
         - Followers saat ini: {$data['latest_followers']} (pertumbuhan: {$followerGrowth})
         - Impressions terakhir: {$data['latest_impressions']} (perubahan: {$impressionChange}%)
         - Engagement rate: {$data['latest_engagement_rate']}%
+        - Likes/replies/reposts terakhir: {$data['latest_likes']}/{$data['latest_replies']}/{$data['latest_reposts']}
 
         Berikan 3 insight singkat dalam bahasa Indonesia:
         1. Insight tentang performa posting (success/warning/info)
@@ -174,16 +180,7 @@ class InsightService
      */
     private function parseInsightResponse(string $response): array
     {
-        // Try to parse JSON
-        $cleaned = trim($response);
-
-        // Remove markdown code block if present
-        if (str_starts_with($cleaned, '```')) {
-            $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);
-            $cleaned = preg_replace('/\s*```$/', '', $cleaned);
-        }
-
-        $parsed = json_decode($cleaned, true);
+        $parsed = $this->jsonParser->parse($response, []);
 
         if (is_array($parsed) && count($parsed) > 0) {
             // Validate structure

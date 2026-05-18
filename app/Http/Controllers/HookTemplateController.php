@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Models\HookTemplate;
+use App\Services\AI\AIWorkflowService;
 use App\Services\AIService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,6 +17,7 @@ class HookTemplateController extends Controller
 {
     public function __construct(
         private readonly AIService $aiService,
+        private readonly AIWorkflowService $ai,
     ) {}
 
     public function index(Request $request): Response
@@ -108,6 +110,7 @@ class HookTemplateController extends Controller
                 feature: 'hook_generator',
                 userPrompt: $prompt,
                 systemPrompt: 'Kamu adalah ahli copywriting media sosial. Berikan skor engagement untuk hook yang diberikan. Output HANYA angka integer 1-100.',
+                maxTokens: 20,
             );
 
             $score = (int) trim($result);
@@ -140,28 +143,19 @@ class HookTemplateController extends Controller
 
         try {
             $count = $request->get('count', 5);
-            $prompt = "Buatkan {$count} hook/opening line yang menarik untuk post Threads tentang: {$request->topic}\n\nFormat output JSON array:\n[{\"hook_text\": \"isi hook\", \"score\": 75}]\n\nKriteria hook yang baik:\n- Singkat (maksimal 2 kalimat)\n- Membuat penasaran\n- Relevan dengan audiens Indonesia\n- Tidak clickbait\n\nHANYA output JSON array, tanpa teks lain.";
-
-            $result = $this->aiService->complete(
-                feature: 'hook_generator',
-                userPrompt: $prompt,
-                systemPrompt: 'Kamu adalah copywriter ahli untuk platform Threads. Buatkan hook yang engaging dalam bahasa Indonesia. Output dalam JSON array.',
-            );
-
-            $cleaned = trim($result);
-            if (str_starts_with($cleaned, '```')) {
-                $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);
-                $cleaned = preg_replace('/\s*```$/', '', $cleaned);
-            }
-
-            $hooks = json_decode($cleaned, true) ?? [];
+            $hooks = array_slice($this->ai->generateHook(
+                topic: (string) $request->topic,
+                pillar: $request->get('category'),
+                workspaceId: auth()->user()->workspace_id,
+            ), 0, $count);
             $created = [];
 
             foreach ($hooks as $hook) {
-                if (!empty($hook['hook_text'])) {
+                $hookText = $hook['hook'] ?? $hook['hook_text'] ?? null;
+                if (!empty($hookText)) {
                     $created[] = HookTemplate::create([
                         'workspace_id' => auth()->user()->workspace_id,
-                        'hook_text' => $hook['hook_text'],
+                        'hook_text' => $hookText,
                         'category' => $request->get('category', 'AI Generated'),
                         'score' => $hook['score'] ?? 0,
                         'is_ai_generated' => true,

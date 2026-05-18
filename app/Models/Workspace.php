@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -26,6 +28,26 @@ class Workspace extends Model
     protected $hidden = [
         'threads_access_token',
     ];
+
+    public function getThreadsAccessTokenAttribute(?string $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($value);
+        } catch (DecryptException) {
+            return $value;
+        }
+    }
+
+    public function setThreadsAccessTokenAttribute(?string $value): void
+    {
+        $this->attributes['threads_access_token'] = blank($value)
+            ? null
+            : Crypt::encryptString($value);
+    }
 
     // ─── Relationships ───
 

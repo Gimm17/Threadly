@@ -19,12 +19,17 @@ class AnalyticsSnapshot extends Model
         'followers_count',
         'following_count',
         'impressions',
+        'likes',
+        'replies',
+        'reposts',
+        'quotes',
         'reach',
         'engagement',
         'engagement_rate',
         'posts_published',
         'saves',
         'shares',
+        'source',
     ];
 
     protected $casts = [
@@ -32,6 +37,10 @@ class AnalyticsSnapshot extends Model
         'followers_count' => 'integer',
         'following_count' => 'integer',
         'impressions' => 'integer',
+        'likes' => 'integer',
+        'replies' => 'integer',
+        'reposts' => 'integer',
+        'quotes' => 'integer',
         'reach' => 'integer',
         'engagement' => 'integer',
         'engagement_rate' => 'float',

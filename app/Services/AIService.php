@@ -6,6 +6,9 @@ namespace App\Services;
 
 use App\Models\AiModelConfig;
 use App\Models\AiUsageLog;
+use App\Services\AI\AIBudgetGuard;
+use App\Services\AI\CostEstimator;
+use App\Services\AI\ModelCatalogService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -18,8 +21,13 @@ class AIService
 
     public function __construct()
     {
-        $this->apiKey = config('services.tokenrouter.key', '');
-        $this->baseUrl = config('services.tokenrouter.base_url', 'https://api.tokenrouter.com/v1');
+        $this->apiKey = (string) config('services.tokenrouter.key', '');
+        $this->baseUrl = (string) config('services.tokenrouter.base_url', 'https://api.tokenrouter.com/v1');
+    }
+
+    private function verifySsl(): bool
+    {
+        return filter_var(config('services.tokenrouter.verify_ssl', true), FILTER_VALIDATE_BOOL);
     }
 
     /**
@@ -32,6 +40,8 @@ class AIService
         string  $userPrompt,
         ?string $systemPrompt = null,
         ?int    $workspaceId = null,
+        ?int    $maxTokens = null,
+        bool    $jsonMode = false,
     ): string {
         if (empty($this->apiKey)) {
             throw new RuntimeException('TokenRouter API key is not configured.');
@@ -40,27 +50,40 @@ class AIService
         $config = $this->getConfig($feature, $workspaceId);
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
+        $resolvedSystemPrompt = $systemPrompt ?? $config->system_prompt ?? 'You are a helpful assistant.';
+        $resolvedMaxTokens = $maxTokens ? min($config->max_tokens, $maxTokens) : $config->max_tokens;
+        $inputEstimate = app(CostEstimator::class)->estimateTokens([$resolvedSystemPrompt, $userPrompt]);
+        app(AIBudgetGuard::class)->ensureAllowed(
+            $wsId,
+            app(CostEstimator::class)->textCost($config->model_id, $inputEstimate, $resolvedMaxTokens),
+        );
+
+        $payload = [
+            'model' => $config->model_id,
+            'temperature' => (float) $config->temperature,
+            'max_tokens' => $resolvedMaxTokens,
+            'messages' => [
+                [
+                    'role' => 'system',
+                    'content' => $resolvedSystemPrompt,
+                ],
+                [
+                    'role' => 'user',
+                    'content' => $userPrompt,
+                ],
+            ],
+        ];
+
+        if ($jsonMode && app(ModelCatalogService::class)->supportsJsonMode($config->model_id)) {
+            $payload['response_format'] = ['type' => 'json_object'];
+        }
 
         try {
             $response = Http::withToken($this->apiKey)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout(90)
                 ->retry(2, 2000)
-                ->post($this->baseUrl . '/chat/completions', [
-                    'model' => $config->model_id,
-                    'temperature' => (float) $config->temperature,
-                    'max_tokens' => $config->max_tokens,
-                    'messages' => [
-                        [
-                            'role' => 'system',
-                            'content' => $systemPrompt ?? $config->system_prompt ?? 'You are a helpful assistant.',
-                        ],
-                        [
-                            'role' => 'user',
-                            'content' => $userPrompt,
-                        ],
-                    ],
-                ]);
+                ->post($this->baseUrl . '/chat/completions', $payload);
 
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
@@ -90,39 +113,44 @@ class AIService
         }
     }
 
+    public function completeJson(
+        string  $feature,
+        string  $userPrompt,
+        ?string $systemPrompt = null,
+        ?int    $workspaceId = null,
+        ?int    $maxTokens = null,
+    ): string {
+        return $this->complete(
+            feature: $feature,
+            userPrompt: $userPrompt,
+            systemPrompt: $systemPrompt,
+            workspaceId: $workspaceId,
+            maxTokens: $maxTokens,
+            jsonMode: true,
+        );
+    }
+
     /**
      * Determine the correct endpoint strategy for a given image model.
      *
      * TokenRouter API has two image generation paths:
-     *  - /v1/images/generations  → OpenAI image models, ByteDance Seedream, etc.
-     *  - /v1/chat/completions    → Google Gemini image models (require modalities: ["text","image"])
+     *  - /v1/images/generations  -> OpenAI image models, ByteDance Seedream, etc.
+     *  - /v1/chat/completions    -> Google Gemini image models (require modalities: ["text","image"])
      *
      * @return 'images'|'chat'
      */
     private function resolveImageEndpoint(string $modelId): string
     {
-        // Models that MUST use /chat/completions with modalities
-        $chatImageModels = [
-            'google/',      // All Google Gemini image models
-        ];
-
-        foreach ($chatImageModels as $prefix) {
-            if (str_starts_with($modelId, $prefix)) {
-                return 'chat';
-            }
-        }
-
-        // Default: /images/generations (OpenAI, ByteDance Seedream, etc.)
-        return 'images';
+        return app(ModelCatalogService::class)->endpointType($modelId);
     }
 
     /**
-     * Generate an image — smart endpoint routing.
+     * Generate an image with smart endpoint routing.
      *
      * Automatically detects the model vendor and routes to the correct
      * TokenRouter endpoint:
-     *  - Google Gemini → POST /v1/chat/completions  (modalities: ["text","image"])
-     *  - OpenAI / ByteDance / others → POST /v1/images/generations
+     *  - Google Gemini -> POST /v1/chat/completions  (modalities: ["text","image"])
+     *  - OpenAI / ByteDance / others -> POST /v1/images/generations
      *
      * @return array{path: string, name: string, mime: string, size: int}
      * @throws RuntimeException when AI call fails
@@ -144,22 +172,19 @@ class AIService
         $modelId = $modelOverride ?: $config->model_id;
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
-
-        $userContent = "Generate a high-quality {$style} style image. Image description: {$prompt}";
-
-        $size = match ($aspectRatio) {
-            '1:1' => '1024x1024',
-            '16:9' => '1536x1024',
-            '9:16' => '1024x1536',
-            '4:5' => '1024x1280',
-            default => '1024x1024',
-        };
-
         $endpointType = $this->resolveImageEndpoint($modelId);
+
+        $this->guardImageBudget($wsId, $modelId);
+
+        $userContent = str_contains($prompt, 'Create a premium social media poster')
+            ? $prompt
+            : "Generate a high-quality {$style} style image. Image description: {$prompt}";
+
+        $size = app(ModelCatalogService::class)->sizeForAspectRatio($aspectRatio);
 
         try {
             if ($endpointType === 'chat') {
-                // ─── Google Gemini path: /v1/chat/completions ───
+                // Google Gemini path: /v1/chat/completions
                 $payload = [
                     'model' => $modelId,
                     'messages' => [
@@ -169,18 +194,18 @@ class AIService
                         ],
                     ],
                     'modalities' => ['text', 'image'],
-                    'max_tokens' => 4096,
+                    'max_tokens' => min($config->max_tokens, 4096),
                 ];
 
                 Log::info('AI Image via /chat/completions', ['model' => $modelId, 'endpoint' => 'chat']);
 
                 $response = Http::withToken($this->apiKey)
-                    ->withOptions(['verify' => false])
+                    ->withOptions(['verify' => $this->verifySsl()])
                     ->timeout(180)
                     ->retry(2, 5000)
                     ->post($this->baseUrl . '/chat/completions', $payload);
             } else {
-                // ─── OpenAI / ByteDance / default path: /v1/images/generations ───
+                // OpenAI / ByteDance / default path: /v1/images/generations
                 $payload = [
                     'model' => $modelId,
                     'prompt' => $userContent,
@@ -196,7 +221,7 @@ class AIService
                 Log::info('AI Image via /images/generations', ['model' => $modelId, 'endpoint' => 'images']);
 
                 $response = Http::withToken($this->apiKey)
-                    ->withOptions(['verify' => false])
+                    ->withOptions(['verify' => $this->verifySsl()])
                     ->timeout(150)
                     ->retry(2, 3000)
                     ->post($this->baseUrl . '/images/generations', $payload);
@@ -251,6 +276,20 @@ class AIService
         $startTime = microtime(true);
 
         try {
+            $imagePaths = is_array($imagePaths) ? array_values($imagePaths) : [$imagePaths];
+
+            if ($this->resolveImageEndpoint($modelId) === 'chat') {
+                return $this->generateImageFromReference(
+                    prompt: $prompt,
+                    referenceImageUrl: $this->localImagePathToDataUri($imagePaths[0] ?? ''),
+                    aspectRatio: $this->aspectRatioFromSize($size),
+                    modelOverride: $modelId,
+                    workspaceId: $workspaceId,
+                );
+            }
+
+            $this->guardImageBudget($wsId, $modelId);
+
             $multipart = [
                 ['name' => 'model', 'contents' => $modelId],
                 ['name' => 'prompt', 'contents' => $prompt],
@@ -259,7 +298,6 @@ class AIService
             ];
 
             // Attach image file(s) as multipart
-            $imagePaths = is_array($imagePaths) ? $imagePaths : [$imagePaths];
             foreach ($imagePaths as $imgPath) {
                 $fullPath = Storage::disk('public')->path($imgPath);
                 if (!file_exists($fullPath)) {
@@ -274,7 +312,7 @@ class AIService
             }
 
             $response = Http::withToken($this->apiKey)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout(180)
                 ->asMultipart()
                 ->post($this->baseUrl . '/images/edits', $multipart);
@@ -326,15 +364,13 @@ class AIService
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
 
-        $userContent = "Generate a high-quality {$style} style image. Image description: {$prompt}";
+        $this->guardImageBudget($wsId, $modelId);
 
-        $size = match ($aspectRatio) {
-            '1:1' => '1024x1024',
-            '16:9' => '1536x1024',
-            '9:16' => '1024x1536',
-            '4:5' => '1024x1280',
-            default => '1024x1024',
-        };
+        $userContent = str_contains($prompt, 'Create a premium social media poster')
+            ? $prompt
+            : "Generate a high-quality {$style} style image. Image description: {$prompt}";
+
+        $size = app(ModelCatalogService::class)->sizeForAspectRatio($aspectRatio);
 
         try {
             $payload = [
@@ -350,7 +386,7 @@ class AIService
             ];
 
             $response = Http::withToken($this->apiKey)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout(150)
                 ->retry(2, 3000)
                 ->post($this->baseUrl . '/chat/completions', $payload);
@@ -403,13 +439,9 @@ class AIService
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
 
-        $size = match ($aspectRatio) {
-            '1:1' => '1024x1024',
-            '16:9' => '1536x1024',
-            '9:16' => '1024x1536',
-            '4:5' => '1024x1280',
-            default => '1024x1024',
-        };
+        $this->guardImageBudget($wsId, $modelId);
+
+        $size = app(ModelCatalogService::class)->sizeForAspectRatio($aspectRatio);
 
         try {
             $payload = [
@@ -434,7 +466,7 @@ class AIService
             ];
 
             $response = Http::withToken($this->apiKey)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout(180)
                 ->retry(2, 3000)
                 ->post($this->baseUrl . '/chat/completions', $payload);
@@ -478,10 +510,10 @@ class AIService
         $base64 = null;
         $mime = 'image/png';
 
-        // ─── Format 1: /v1/images/generations → data[].b64_json ───
+        // Format 1: /v1/images/generations -> data[].b64_json
         $base64 = data_get($data, 'data.0.b64_json');
 
-        // ─── Format 2: /v1/images/generations → data[].url ───
+        // Format 2: /v1/images/generations -> data[].url
         if (!$base64) {
             $url = data_get($data, 'data.0.url');
             if ($url) {
@@ -489,7 +521,7 @@ class AIService
             }
         }
 
-        // ─── Format 3: /v1/chat/completions → choices[].message.content (multimodal) ───
+        // Format 3: /v1/chat/completions -> choices[].message.content (multimodal)
         if (!$base64) {
             $contentParts = data_get($data, 'choices.0.message.content');
 
@@ -561,10 +593,10 @@ class AIService
             return $dataParts[1] ?? null;
         }
 
-        // Regular HTTP(S) URL — download it
+        // Regular HTTP(S) URL: download it.
         if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
             try {
-                $imgResponse = Http::withOptions(['verify' => false])->timeout(60)->get($url);
+                $imgResponse = Http::withOptions(['verify' => $this->verifySsl()])->timeout(60)->get($url);
                 if ($imgResponse->successful()) {
                     $mime = $imgResponse->header('Content-Type') ?? 'image/png';
                     return base64_encode($imgResponse->body());
@@ -601,14 +633,71 @@ class AIService
                 'prompt_tokens' => $promptTokens,
                 'completion_tokens' => $completionTokens,
                 'total_tokens' => $totalTokens,
-                'cost' => $totalTokens * 0.00001, // rough estimate
-                'response_time_ms' => $responseTimeMs,
-                'is_success' => $isSuccess,
-                'error_message' => $errorMessage,
-            ]);
+            'cost' => $this->estimateCost($feature, $modelId, $promptTokens, $completionTokens, $totalTokens),
+            'response_time_ms' => $responseTimeMs,
+            'is_success' => $isSuccess,
+            'error_message' => $errorMessage,
+            'estimated_input_tokens' => $promptTokens,
+            'estimated_output_tokens' => $completionTokens,
+            'cost_source' => 'model_catalog',
+        ]);
         } catch (\Exception $e) {
             Log::warning('Failed to log AI usage', ['error' => $e->getMessage()]);
         }
+    }
+
+    private function estimateCost(string $feature, string $modelId, int $promptTokens, int $completionTokens, int $totalTokens): float
+    {
+        $estimator = app(CostEstimator::class);
+
+        if (str_starts_with($feature, 'image')) {
+            if ($promptTokens === 0 && $completionTokens === 0 && $totalTokens > 0) {
+                $promptTokens = (int) floor($totalTokens * 0.65);
+                $completionTokens = $totalTokens - $promptTokens;
+            }
+
+            return round(
+                $estimator->imageCost($modelId) + $estimator->textCost($modelId, $promptTokens, $completionTokens),
+                6,
+            );
+        }
+
+        if ($promptTokens === 0 && $completionTokens === 0 && $totalTokens > 0) {
+            $promptTokens = (int) floor($totalTokens * 0.65);
+            $completionTokens = $totalTokens - $promptTokens;
+        }
+
+        return $estimator->textCost($modelId, $promptTokens, $completionTokens);
+    }
+
+    private function guardImageBudget(?int $workspaceId, string $modelId): void
+    {
+        app(AIBudgetGuard::class)->ensureAllowed(
+            $workspaceId,
+            app(CostEstimator::class)->imageCost($modelId),
+        );
+    }
+
+    private function aspectRatioFromSize(string $size): string
+    {
+        return match ($size) {
+            '1536x1024' => '16:9',
+            '1024x1536' => '9:16',
+            '1024x1280' => '4:5',
+            default => '1:1',
+        };
+    }
+
+    private function localImagePathToDataUri(string $imagePath): string
+    {
+        $fullPath = Storage::disk('public')->path($imagePath);
+        if (!file_exists($fullPath)) {
+            throw new RuntimeException("Image file not found: {$imagePath}");
+        }
+
+        $mime = mime_content_type($fullPath) ?: 'image/png';
+
+        return 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($fullPath));
     }
 
     private function getConfig(string $feature, ?int $workspaceId): AiModelConfig

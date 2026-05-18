@@ -26,21 +26,33 @@ const props = defineProps({
     backgrounds: Array,
 })
 
-// ─── Tabs ───
+// Tabs
 const tabs = [
-    { id: 'text-to-image', label: 'Text to Image', icon: IconPhoto, description: 'Generate gambar dari deskripsi teks via /v1/images/generations' },
+    { id: 'poster', label: 'Poster', icon: IconSparkles, description: 'Generate poster social media dengan prompt brand dan overlay teks rapi' },
+    { id: 'text-to-image', label: 'Advanced', icon: IconPhoto, description: 'Generate gambar dari deskripsi teks via endpoint model yang sesuai' },
     { id: 'image-edit', label: 'Edit Gambar', icon: IconEdit, description: 'Edit gambar yang sudah ada via /v1/images/edits' },
-    { id: 'chat-generation', label: 'Chat Generation', icon: IconMessageCircle, description: 'Generate gambar via multimodal chat completions' },
+    { id: 'chat-generation', label: 'Chat Advanced', icon: IconMessageCircle, description: 'Generate gambar via multimodal chat completions' },
     { id: 'reference-generation', label: 'Dari Referensi', icon: IconPhotoScan, description: 'Generate gambar berdasarkan referensi via multimodal chat' },
 ]
-const activeTab = ref('text-to-image')
+const activeTab = ref('poster')
 
-// ─── Shared State ───
+// Shared state
 const loading = ref(false)
 const error = ref('')
 const generatedImage = ref(null)
 
-// ─── Text-to-Image Form ───
+// Poster Form
+const posterForm = ref({
+    prompt: '',
+    headline: '',
+    style: 'minimalist',
+    aspect_ratio: '4:5',
+    quality: 'auto',
+    background: 'auto',
+    allow_ai_text: false,
+})
+
+// Text-to-image form
 const t2iForm = ref({
     prompt: '',
     style: 'realistic',
@@ -49,7 +61,7 @@ const t2iForm = ref({
     background: 'auto',
 })
 
-// ─── Image Edit Form ───
+// Image edit form
 const editForm = ref({
     prompt: '',
     image: null,
@@ -57,14 +69,14 @@ const editForm = ref({
 })
 const editPreview = ref(null)
 
-// ─── Chat Generation Form ───
+// Chat generation form
 const chatForm = ref({
     prompt: '',
     style: 'realistic',
     aspect_ratio: '1:1',
 })
 
-// ─── Reference Generation Form ───
+// Reference generation form
 const refForm = ref({
     prompt: '',
     reference_image: null,
@@ -73,10 +85,10 @@ const refForm = ref({
 })
 const refPreview = ref(null)
 
-// ─── Gallery ───
+// Gallery
 const showGallery = ref(true)
 
-// ─── Handlers ───
+// Handlers
 
 function handleFileSelect(event, formType) {
     const file = event.target.files[0]
@@ -120,6 +132,46 @@ async function generateTextToImage() {
     } finally {
         loading.value = false
     }
+}
+
+async function generatePoster() {
+    if (!posterForm.value.prompt.trim()) return
+    loading.value = true
+    error.value = ''
+    generatedImage.value = null
+
+    try {
+        const { data } = await axios.post(route('image-studio.poster'), { ...posterForm.value })
+        if (data.success) {
+            generatedImage.value = data.media
+            if (data.queued) {
+                pollMedia(data.media.id)
+            } else {
+                router.reload({ only: ['media'] })
+            }
+        }
+    } catch (e) {
+        error.value = e.response?.data?.message || 'Gagal generate poster.'
+    } finally {
+        loading.value = false
+    }
+}
+
+function pollMedia(id, attempt = 0) {
+    if (!id || attempt > 30) return
+    window.setTimeout(async () => {
+        try {
+            const { data } = await axios.get(route('image-studio.jobs.show', id))
+            generatedImage.value = data.media
+            if (data.media?.generation_status === 'queued') {
+                pollMedia(id, attempt + 1)
+            } else {
+                router.reload({ only: ['media'] })
+            }
+        } catch (e) {
+            error.value = 'Gagal mengambil status poster.'
+        }
+    }, 3000)
 }
 
 async function editImage() {
@@ -216,15 +268,41 @@ function deleteMedia(item) {
     router.delete(route('image-studio.destroy', item.id))
 }
 
-function downloadImage(item) {
-    const link = document.createElement('a')
-    link.href = item.url
-    link.download = item.file_name || 'ai-generated.png'
-    link.click()
+async function downloadImage(item) {
+    if (!hasOverlay(item)) {
+        const link = document.createElement('a')
+        link.href = item.url
+        link.download = item.file_name || 'ai-generated.png'
+        link.click()
+        return
+    }
+
+    try {
+        const image = await loadImage(item.url)
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth || image.width
+        canvas.height = image.naturalHeight || image.height
+
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+        drawOverlay(ctx, canvas.width, canvas.height, item.overlay_config)
+
+        const link = document.createElement('a')
+        const baseName = (item.file_name || 'ai-generated.png').replace(/\.[^.]+$/, '')
+        link.href = canvas.toDataURL('image/png')
+        link.download = `${baseName}-overlay.png`
+        link.click()
+    } catch (e) {
+        const link = document.createElement('a')
+        link.href = item.url
+        link.download = item.file_name || 'ai-generated.png'
+        link.click()
+    }
 }
 
 const currentForm = computed(() => {
     switch (activeTab.value) {
+        case 'poster': return generatePoster
         case 'text-to-image': return generateTextToImage
         case 'image-edit': return editImage
         case 'chat-generation': return generateFromChat
@@ -239,12 +317,108 @@ const modeLabel = computed(() => {
 
 function getModeLabel(mode) {
     const labels = {
+        'poster': 'Poster',
         'text-to-image': 'Text to Image',
+        'advanced': 'Advanced',
         'image-edit': 'Image Edit',
         'chat-generation': 'Chat',
         'reference-generation': 'Reference',
     }
     return labels[mode] || mode
+}
+
+function hasOverlay(item) {
+    return Boolean(item?.overlay_config?.enabled && item.overlay_config?.headline)
+}
+
+function overlayClass(item) {
+    const placement = item?.overlay_config?.placement || 'lower_third'
+    return [
+        'pointer-events-none absolute left-3 right-3 z-10 rounded-lg bg-slate-950/72 px-3 py-2 text-white shadow-lg backdrop-blur-sm',
+        placement === 'top' ? 'top-3' : 'bottom-3',
+    ]
+}
+
+function loadImage(url) {
+    return new Promise((resolve, reject) => {
+        const image = new Image()
+        image.crossOrigin = 'anonymous'
+        image.onload = () => resolve(image)
+        image.onerror = reject
+        image.src = url
+    })
+}
+
+function roundedRect(ctx, x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2)
+    ctx.beginPath()
+    ctx.moveTo(x + r, y)
+    ctx.lineTo(x + width - r, y)
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+    ctx.lineTo(x + width, y + height - r)
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+    ctx.lineTo(x + r, y + height)
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+    ctx.lineTo(x, y + r)
+    ctx.quadraticCurveTo(x, y, x + r, y)
+    ctx.closePath()
+}
+
+function wrapLines(ctx, text, maxWidth) {
+    const words = text.split(/\s+/).filter(Boolean)
+    const lines = []
+    let line = ''
+
+    words.forEach((word) => {
+        const next = line ? `${line} ${word}` : word
+        if (ctx.measureText(next).width <= maxWidth) {
+            line = next
+        } else {
+            if (line) lines.push(line)
+            line = word
+        }
+    })
+
+    if (line) lines.push(line)
+    return lines
+}
+
+function drawOverlay(ctx, width, height, overlay) {
+    const headline = overlay?.headline || ''
+    if (!headline) return
+
+    const handle = overlay?.brand_handle ? `@${overlay.brand_handle}` : ''
+    const padding = Math.round(width * 0.055)
+    const boxPadding = Math.round(width * 0.035)
+    const boxWidth = width - padding * 2
+    const headlineSize = Math.max(34, Math.round(width * 0.052))
+    const handleSize = Math.max(18, Math.round(width * 0.026))
+
+    ctx.font = `700 ${headlineSize}px Inter, Arial, sans-serif`
+    const lines = wrapLines(ctx, headline, boxWidth - boxPadding * 2).slice(0, 3)
+    const lineHeight = Math.round(headlineSize * 1.18)
+    const handleHeight = handle ? Math.round(handleSize * 1.5) : 0
+    const boxHeight = boxPadding * 2 + lines.length * lineHeight + handleHeight
+    const y = (overlay?.placement === 'top')
+        ? padding
+        : height - padding - boxHeight
+
+    ctx.fillStyle = 'rgba(8, 19, 38, 0.78)'
+    roundedRect(ctx, padding, y, boxWidth, boxHeight, Math.round(width * 0.02))
+    ctx.fill()
+
+    ctx.fillStyle = '#ffffff'
+    let textY = y + boxPadding + headlineSize
+    lines.forEach((line) => {
+        ctx.fillText(line, padding + boxPadding, textY)
+        textY += lineHeight
+    })
+
+    if (handle) {
+        ctx.font = `600 ${handleSize}px Inter, Arial, sans-serif`
+        ctx.fillStyle = '#b7f7c8'
+        ctx.fillText(handle, padding + boxPadding, y + boxHeight - boxPadding)
+    }
 }
 </script>
 
@@ -262,7 +436,7 @@ function getModeLabel(mode) {
         <!-- Subheader / Description -->
         <div class="mb-6">
             <p class="text-body-sm text-on-surface-variant">
-                Generate, edit, dan remix gambar dengan AI — powered by TokenRouter
+                Generate, edit, dan remix gambar dengan AI - powered by TokenRouter
             </p>
         </div>
 
@@ -292,9 +466,72 @@ function getModeLabel(mode) {
                         {{ tabs.find(t => t.id === activeTab)?.description }}
                     </p>
 
-                    <!-- ══════════════════════════════════════════════ -->
                     <!-- TAB 1: Text to Image -->
-                    <!-- ══════════════════════════════════════════════ -->
+                    <div v-if="activeTab === 'poster'" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-body-sm font-semibold text-on-background mb-1.5">Brief Poster</label>
+                                <textarea
+                                    v-model="posterForm.prompt"
+                                    rows="4"
+                                    class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none"
+                                    placeholder="Contoh: Poster edukasi AI untuk UMKM agar kerja admin lebih cepat dan rapi"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-body-sm font-semibold text-on-background mb-1.5">Headline Overlay</label>
+                                <input
+                                    v-model="posterForm.headline"
+                                    type="text"
+                                    maxlength="80"
+                                    class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none"
+                                    placeholder="Contoh: AI Bantu UMKM Naik Kelas"
+                                />
+                                <label class="mt-4 flex items-center gap-2 text-sm text-on-background">
+                                    <input v-model="posterForm.allow_ai_text" type="checkbox" class="rounded border-outline-variant text-secondary focus:ring-secondary" />
+                                    Render headline langsung di gambar AI
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-label-caps text-on-surface-variant mb-1">Style</label>
+                                <select v-model="posterForm.style" class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none">
+                                    <option v-for="s in styles" :key="s.value" :value="s.value">{{ s.label }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-label-caps text-on-surface-variant mb-1">Aspect Ratio</label>
+                                <select v-model="posterForm.aspect_ratio" class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none">
+                                    <option v-for="a in aspectRatios" :key="a.value" :value="a.value">{{ a.label }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-label-caps text-on-surface-variant mb-1">Quality</label>
+                                <select v-model="posterForm.quality" class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none">
+                                    <option v-for="q in qualities" :key="q.value" :value="q.value">{{ q.label }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-label-caps text-on-surface-variant mb-1">Background</label>
+                                <select v-model="posterForm.background" class="w-full rounded-lg border-outline-variant px-3 py-2 text-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none">
+                                    <option v-for="b in backgrounds" :key="b.value" :value="b.value">{{ b.label }}</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button
+                            @click="generatePoster"
+                            :disabled="loading || !posterForm.prompt.trim()"
+                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-container text-on-primary-container hover:brightness-105 disabled:opacity-50 font-bold rounded-lg text-sm transition-all"
+                        >
+                            <IconLoader2 v-if="loading" class="w-4 h-4 animate-spin" />
+                            <IconSparkles v-else class="w-4 h-4" />
+                            Generate Poster
+                        </button>
+                    </div>
+
                     <div v-if="activeTab === 'text-to-image'" class="space-y-4">
                         <div>
                             <label class="block text-body-sm font-semibold text-on-background mb-1.5">Prompt</label>
@@ -344,9 +581,7 @@ function getModeLabel(mode) {
                         </button>
                     </div>
 
-                    <!-- ══════════════════════════════════════════════ -->
                     <!-- TAB 2: Image Edit -->
-                    <!-- ══════════════════════════════════════════════ -->
                     <div v-if="activeTab === 'image-edit'" class="space-y-4">
                         <div>
                             <label class="block text-body-sm font-semibold text-on-background mb-1.5">Upload Gambar</label>
@@ -357,7 +592,7 @@ function getModeLabel(mode) {
                             >
                                 <IconUpload class="w-8 h-8 mx-auto text-on-surface-variant mb-2" />
                                 <p class="text-sm text-on-background font-medium">Klik untuk upload gambar</p>
-                                <p class="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP — max 10MB</p>
+                                <p class="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP - max 10MB</p>
                             </div>
                             <div v-else class="relative inline-block">
                                 <img :src="editPreview" class="max-h-48 rounded-lg border border-outline-variant/30" />
@@ -396,9 +631,7 @@ function getModeLabel(mode) {
                         </button>
                     </div>
 
-                    <!-- ══════════════════════════════════════════════ -->
                     <!-- TAB 3: Chat Generation -->
-                    <!-- ══════════════════════════════════════════════ -->
                     <div v-if="activeTab === 'chat-generation'" class="space-y-4">
                         <div>
                             <label class="block text-body-sm font-semibold text-on-background mb-1.5">Prompt</label>
@@ -436,9 +669,7 @@ function getModeLabel(mode) {
                         </button>
                     </div>
 
-                    <!-- ══════════════════════════════════════════════ -->
                     <!-- TAB 4: Reference Generation -->
-                    <!-- ══════════════════════════════════════════════ -->
                     <div v-if="activeTab === 'reference-generation'" class="space-y-4">
                         <div>
                             <label class="block text-body-sm font-semibold text-on-background mb-1.5">Gambar Referensi</label>
@@ -451,7 +682,7 @@ function getModeLabel(mode) {
                                 >
                                     <IconUpload class="w-7 h-7 mx-auto text-on-surface-variant mb-2" />
                                     <p class="text-sm text-on-background font-medium">Upload gambar referensi</p>
-                                    <p class="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP — max 10MB</p>
+                                    <p class="text-xs text-on-surface-variant mt-1">PNG, JPG, WEBP - max 10MB</p>
                                 </div>
                                 <div v-else class="relative inline-block">
                                     <img :src="refPreview" class="max-h-40 rounded-lg border border-outline-variant/30" />
@@ -502,9 +733,7 @@ function getModeLabel(mode) {
                         </button>
                     </div>
 
-                    <!-- ══════════════════════════════════════════════ -->
                     <!-- Loading Overlay -->
-                    <!-- ══════════════════════════════════════════════ -->
                     <div v-if="loading" class="mt-6 flex items-center gap-3 p-4 bg-tertiary-fixed rounded-lg border border-tertiary-fixed-dim">
                         <IconLoader2 class="w-5 h-5 text-on-tertiary-container animate-spin" />
                         <div>
@@ -520,13 +749,24 @@ function getModeLabel(mode) {
 
                     <!-- Generated Result -->
                     <div v-if="generatedImage && !loading" class="mt-6 p-4 bg-success/10 rounded-lg border border-success/30">
-                        <p class="text-sm font-bold text-success mb-3">✨ Gambar berhasil dibuat!</p>
+                        <p class="text-sm font-bold text-success mb-3">Gambar berhasil dibuat!</p>
                         <div class="flex flex-col sm:flex-row gap-4">
-                            <img :src="generatedImage.url" class="max-h-64 rounded-lg shadow-sm" />
+                            <div v-if="generatedImage.url" class="relative inline-block overflow-hidden rounded-lg shadow-sm">
+                                <img :src="generatedImage.url" class="max-h-64" />
+                                <div v-if="hasOverlay(generatedImage)" :class="overlayClass(generatedImage)">
+                                    <p class="text-sm sm:text-base font-bold leading-tight">{{ generatedImage.overlay_config.headline }}</p>
+                                    <p class="mt-1 text-[11px] font-semibold text-green-200">@{{ generatedImage.overlay_config.brand_handle }}</p>
+                                </div>
+                            </div>
+                            <div v-else class="w-48 h-48 rounded-lg border border-outline-variant/30 bg-surface-container flex items-center justify-center text-sm text-on-surface-variant">
+                                {{ generatedImage.generation_status === 'queued' ? 'Dalam antrean AI...' : 'Belum ada file gambar' }}
+                            </div>
                             <div class="space-y-1 text-sm text-on-background">
                                 <p><span class="font-bold text-on-surface-variant">Mode:</span> {{ getModeLabel(generatedImage.generation_mode) }}</p>
+                                <p><span class="font-bold text-on-surface-variant">Status:</span> {{ generatedImage.generation_status || 'completed' }}</p>
                                 <p v-if="generatedImage.style"><span class="font-bold text-on-surface-variant">Style:</span> {{ generatedImage.style }}</p>
                                 <p><span class="font-bold text-on-surface-variant">Ratio:</span> {{ generatedImage.aspect_ratio }}</p>
+                                <p v-if="generatedImage.estimated_cost"><span class="font-bold text-on-surface-variant">Est. cost:</span> ${{ generatedImage.estimated_cost }}</p>
                                 <p class="text-xs text-on-surface-variant mt-2">{{ generatedImage.created_at }}</p>
                                 <button @click="downloadImage(generatedImage)" class="inline-flex items-center gap-1.5 mt-2 text-primary hover:text-on-primary-container text-sm font-bold transition-colors">
                                     <IconDownload class="w-4 h-4" /> Download
@@ -537,9 +777,7 @@ function getModeLabel(mode) {
                 </div>
             </div>
 
-            <!-- ══════════════════════════════════════════════ -->
             <!-- Gallery -->
-            <!-- ══════════════════════════════════════════════ -->
             <div class="card p-0 overflow-hidden">
                 <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 bg-surface-container-lowest">
                     <h2 class="text-headline-md text-on-background">Galeri Gambar</h2>
@@ -555,12 +793,21 @@ function getModeLabel(mode) {
                             :key="item.id"
                             class="group relative rounded-xl overflow-hidden border border-outline-variant/30 bg-surface-container-lowest shadow-sm hover:shadow-md transition-all"
                         >
-                            <img
-                                :src="item.url"
-                                :alt="item.prompt"
-                                class="w-full aspect-square object-cover"
-                                loading="lazy"
-                            />
+                            <div v-if="item.url" class="relative">
+                                <img
+                                    :src="item.url"
+                                    :alt="item.prompt"
+                                    class="w-full aspect-square object-cover"
+                                    loading="lazy"
+                                />
+                                <div v-if="hasOverlay(item)" :class="overlayClass(item)">
+                                    <p class="text-[11px] font-bold leading-tight line-clamp-2">{{ item.overlay_config.headline }}</p>
+                                    <p class="mt-0.5 text-[9px] font-semibold text-green-200">@{{ item.overlay_config.brand_handle }}</p>
+                                </div>
+                            </div>
+                            <div v-else class="w-full aspect-square bg-surface-container flex items-center justify-center text-xs text-on-surface-variant">
+                                {{ item.generation_status || 'queued' }}
+                            </div>
 
                             <!-- Overlay -->
                             <div class="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all flex items-end opacity-0 group-hover:opacity-100">

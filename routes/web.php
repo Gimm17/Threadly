@@ -78,7 +78,9 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
 
         // AI Assist
         Route::prefix('ai')->name('ai.')->group(function () {
+            Route::post('content-assist', [AiAssistController::class, 'contentAssist'])->name('content-assist');
             Route::post('generate-hook', [AiAssistController::class, 'generateHook'])->name('generate-hook');
+            Route::post('generate-hashtags', [AiAssistController::class, 'generateHashtags'])->name('generate-hashtags');
             Route::post('improve-text', [AiAssistController::class, 'improveText'])->name('improve-text');
             Route::post('generate-ideas', [AiAssistController::class, 'generateIdeas'])->name('generate-ideas');
         });
@@ -86,6 +88,8 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
         // Image Studio
         Route::prefix('image-studio')->name('image-studio.')->group(function () {
             Route::get('/', [ImageStudioController::class, 'index'])->name('index');
+            Route::post('/poster', [ImageStudioController::class, 'poster'])->name('poster');
+            Route::get('/jobs/{media}', [ImageStudioController::class, 'jobStatus'])->name('jobs.show');
             Route::post('/generate', [ImageStudioController::class, 'generate'])->name('generate');
             Route::post('/edit', [ImageStudioController::class, 'edit'])->name('edit');
             Route::post('/generate-chat', [ImageStudioController::class, 'generateFromChat'])->name('generate-chat');

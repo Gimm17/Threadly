@@ -26,6 +26,7 @@ Schedule::call(function () {
 
     $posts = Post::withoutGlobalScopes()
         ->where('status', 'scheduled')
+        ->where('publish_mode', 'manual')
         ->whereNull('reminder_sent_at')
         ->whereBetween('scheduled_at', [
             now()->addMinutes($offsetMinutes - 3),
@@ -51,7 +52,7 @@ Schedule::job(new GenerateDailyInsightsJob)
 Schedule::call(function () {
     $posts = Post::withoutGlobalScopes()
         ->where('status', 'scheduled')
-        ->where('publish_mode', 'api')
+        ->where('publish_mode', 'auto')
         ->where('scheduled_at', '<=', now())
         ->get();
 
@@ -71,3 +72,10 @@ Schedule::call(function () {
 Schedule::command('queue:prune-failed --hours=168')
     ->daily()
     ->name('prune-failed-jobs');
+
+if (filter_var(env('AI_IMAGE_QUEUE_ENABLED', false), FILTER_VALIDATE_BOOL)) {
+    Schedule::command('queue:work database --queue=ai --stop-when-empty --tries=2 --timeout=210')
+        ->everyMinute()
+        ->name('process-ai-image-queue')
+        ->withoutOverlapping();
+}

@@ -10,7 +10,7 @@ use App\Models\ActivityLog;
 use App\Models\ContentPillar;
 use App\Models\Post;
 use App\Services\MediaUploadService;
-use App\Services\ThreadsApiService;
+use App\Services\PostReminderService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,6 +19,7 @@ class PostController extends Controller
 {
     public function __construct(
         private readonly MediaUploadService $mediaService,
+        private readonly PostReminderService $postReminderService,
     ) {}
 
     public function index(): Response
@@ -80,6 +81,7 @@ class PostController extends Controller
             }
         }
 
+        $this->postReminderService->scheduleReminder($post);
         $this->logActivity('created', $post);
 
         return redirect()->route('posts.index')
@@ -120,6 +122,7 @@ class PostController extends Controller
             }
         }
 
+        $this->postReminderService->scheduleReminder($post);
         $this->logActivity('updated', $post);
 
         return redirect()->route('posts.index')

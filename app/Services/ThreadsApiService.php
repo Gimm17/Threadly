@@ -15,6 +15,11 @@ class ThreadsApiService
 {
     private const BASE_URL = 'https://graph.threads.net/v1.0';
 
+    private function verifySsl(): bool
+    {
+        return filter_var(config('services.threads.verify_ssl', true), FILTER_VALIDATE_BOOL);
+    }
+
     /**
      * Publish a post to Threads API.
      * Two-step process: 1) Create media container, 2) Publish.
@@ -65,7 +70,7 @@ class ThreadsApiService
      */
     public function getThreadsUserId(string $accessToken): string
     {
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->get(self::BASE_URL . '/me', [
                 'fields' => 'id,username,name,threads_profile_picture_url',
                 'access_token' => $accessToken,
@@ -84,7 +89,7 @@ class ThreadsApiService
      */
     public function getProfile(string $accessToken): array
     {
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->get(self::BASE_URL . '/me', [
                 'fields' => 'id,username,name,threads_profile_picture_url,threads_biography',
                 'access_token' => $accessToken,
@@ -104,7 +109,7 @@ class ThreadsApiService
     {
         $userId = $this->getThreadsUserId($accessToken);
 
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->get(self::BASE_URL . "/{$userId}/threads", [
                 'fields' => 'id,text,timestamp,media_type,media_url,permalink,is_quote_post',
                 'limit' => $limit,
@@ -123,7 +128,7 @@ class ThreadsApiService
      */
     public function getThreadInsights(string $accessToken, string $threadId): array
     {
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->get(self::BASE_URL . "/{$threadId}/insights", [
                 'metric' => 'views,likes,replies,reposts,quotes',
                 'access_token' => $accessToken,
@@ -148,7 +153,7 @@ class ThreadsApiService
     {
         $userId = $this->getThreadsUserId($accessToken);
 
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->get(self::BASE_URL . "/{$userId}/threads_insights", [
                 'metric' => 'views,likes,replies,reposts,quotes,followers_count',
                 'access_token' => $accessToken,
@@ -189,7 +194,7 @@ class ThreadsApiService
             $params['text'] .= "\n\n" . $post->link_url;
         }
 
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->post(self::BASE_URL . "/{$userId}/threads", $params);
 
         if ($response->failed()) {
@@ -220,7 +225,7 @@ class ThreadsApiService
      */
     private function publishContainer(string $userId, string $accessToken, string $containerId): string
     {
-        $response = Http::withOptions(['verify' => false])
+        $response = Http::withOptions(['verify' => $this->verifySsl()])
             ->post(self::BASE_URL . "/{$userId}/threads_publish", [
                 'creation_id' => $containerId,
                 'access_token' => $accessToken,

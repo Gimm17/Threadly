@@ -8,6 +8,7 @@ use App\Models\AnalyticsSnapshot;
 use App\Models\Workspace;
 use App\Services\AnalyticsService;
 use App\Services\ThreadsApiService;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -66,17 +67,13 @@ class AnalyticsController extends Controller
         ]);
 
         $workspaceId = auth()->user()->workspace_id;
+        $snapshotDate = Carbon::parse($validated['snapshot_date'])->toDateString();
 
-        AnalyticsSnapshot::withoutGlobalScopes()->updateOrCreate(
-            [
-                'workspace_id' => $workspaceId,
-                'snapshot_date' => $validated['snapshot_date'],
-            ],
-            [
-                ...$validated,
-                'workspace_id' => $workspaceId,
-            ],
-        );
+        $this->upsertSnapshot($workspaceId, $snapshotDate, [
+            ...$validated,
+            'snapshot_date' => $snapshotDate,
+            'source' => 'manual',
+        ]);
 
         return redirect()->back()
             ->with('success', 'Data analytics berhasil disimpan.');
@@ -123,21 +120,16 @@ class AnalyticsController extends Controller
                 : 0;
 
             // Save as today's snapshot
-            AnalyticsSnapshot::withoutGlobalScopes()->updateOrCreate(
-                [
-                    'workspace_id' => $workspace->id,
-                    'snapshot_date' => now()->toDateString(),
-                ],
-                [
-                    'followers_count' => $followersCount,
-                    'impressions' => $totalViews,
-                    'likes' => $totalLikes,
-                    'replies' => $totalReplies,
-                    'reposts' => $totalReposts,
-                    'quotes' => $totalQuotes,
-                    'engagement_rate' => $engagementRate,
-                ],
-            );
+            $this->upsertSnapshot($workspace->id, now()->toDateString(), [
+                'followers_count' => $followersCount,
+                'impressions' => $totalViews,
+                'likes' => $totalLikes,
+                'replies' => $totalReplies,
+                'reposts' => $totalReposts,
+                'quotes' => $totalQuotes,
+                'engagement_rate' => $engagementRate,
+                'source' => 'api',
+            ]);
 
             return redirect()->back()
                 ->with('success', "Analytics berhasil disinkronkan dari Threads API! ({$followersCount} followers, {$totalEngagement} engagements)");
@@ -148,5 +140,29 @@ class AnalyticsController extends Controller
             return redirect()->back()
                 ->with('error', 'Gagal mengambil data dari Threads API: ' . $e->getMessage());
         }
+    }
+
+    private function upsertSnapshot(int $workspaceId, string $snapshotDate, array $values): AnalyticsSnapshot
+    {
+        $snapshot = AnalyticsSnapshot::withoutGlobalScopes()
+            ->where('workspace_id', $workspaceId)
+            ->whereDate('snapshot_date', $snapshotDate)
+            ->first();
+
+        if (! $snapshot) {
+            $snapshot = new AnalyticsSnapshot([
+                'workspace_id' => $workspaceId,
+                'snapshot_date' => $snapshotDate,
+            ]);
+        }
+
+        $snapshot->fill([
+            ...$values,
+            'workspace_id' => $workspaceId,
+            'snapshot_date' => $snapshotDate,
+        ]);
+        $snapshot->save();
+
+        return $snapshot;
     }
 }

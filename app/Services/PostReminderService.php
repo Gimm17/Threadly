@@ -14,7 +14,7 @@ class PostReminderService
      */
     public function scheduleReminder(Post $post): void
     {
-        if (! $post->scheduled_at || $post->status !== 'scheduled') {
+        if (! $post->scheduled_at || $post->status !== 'scheduled' || $post->publish_mode !== 'manual') {
             return;
         }
 

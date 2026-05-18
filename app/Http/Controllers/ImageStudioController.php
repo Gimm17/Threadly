@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GeneratePosterImageJob;
 use App\Models\GeneratedMedia;
+use App\Services\AI\CostEstimator;
+use App\Services\AI\ModelCatalogService;
+use App\Services\AI\PosterPromptBuilder;
 use App\Services\AIService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -17,6 +21,9 @@ class ImageStudioController extends Controller
 {
     public function __construct(
         private readonly AIService $aiService,
+        private readonly PosterPromptBuilder $posterPromptBuilder,
+        private readonly CostEstimator $costEstimator,
+        private readonly ModelCatalogService $modelCatalog,
     ) {}
 
     /**
@@ -38,6 +45,83 @@ class ImageStudioController extends Controller
     }
 
     /**
+     * Generate a poster-optimized image with deterministic overlay metadata.
+     */
+    public function poster(Request $request): JsonResponse
+    {
+        set_time_limit(180);
+
+        $validated = $request->validate([
+            'prompt' => ['required', 'string', 'max:1200'],
+            'headline' => ['nullable', 'string', 'max:80'],
+            'style' => ['nullable', 'string', 'in:realistic,illustration,cartoon,minimalist,3d,photography'],
+            'aspect_ratio' => ['nullable', 'string', 'in:1:1,4:5,16:9,9:16'],
+            'quality' => ['nullable', 'string', 'in:auto,low,medium,high'],
+            'background' => ['nullable', 'string', 'in:auto,transparent,opaque'],
+            'allow_ai_text' => ['nullable', 'boolean'],
+        ]);
+
+        $imageConfig = \App\Models\AiModelConfig::withoutGlobalScopes()
+            ->where('workspace_id', auth()->user()->workspace_id)
+            ->where('feature', 'image_generation')
+            ->first();
+        $modelUsed = $imageConfig?->model_id ?? 'google/gemini-3.1-flash-image-preview';
+
+        if (($validated['allow_ai_text'] ?? false) && ! $this->modelCatalog->supportsTextInImage($modelUsed)) {
+            $validated['allow_ai_text'] = false;
+        }
+
+        $promptData = $this->posterPromptBuilder->build($validated, auth()->user()->workspace_id);
+        $metadata = [
+            ...$promptData,
+            'estimated_cost' => $this->costEstimator->imageCost($modelUsed),
+        ];
+
+        try {
+            if (filter_var(env('AI_IMAGE_QUEUE_ENABLED', false), FILTER_VALIDATE_BOOL)) {
+                $media = $this->createQueuedMedia($validated, $metadata, $modelUsed);
+                GeneratePosterImageJob::dispatch($media->id, $validated)->onQueue('ai');
+
+                return response()->json([
+                    'success' => true,
+                    'queued' => true,
+                    'media' => $this->mediaResponse($media),
+                ]);
+            }
+
+            $fileInfo = $this->aiService->generateImage(
+                prompt: $promptData['enhanced_prompt'],
+                style: $validated['style'] ?? 'realistic',
+                aspectRatio: $validated['aspect_ratio'] ?? '1:1',
+                quality: $validated['quality'] ?? 'auto',
+                background: $validated['background'] ?? 'auto',
+            );
+
+            $media = $this->saveMedia($validated, $fileInfo, 'poster', $metadata);
+
+            return response()->json([
+                'success' => true,
+                'media' => $this->mediaResponse($media),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal generate poster.',
+            ], 422);
+        }
+    }
+
+    public function jobStatus(GeneratedMedia $media): JsonResponse
+    {
+        abort_unless($media->workspace_id === auth()->user()->workspace_id, 404);
+
+        return response()->json([
+            'success' => true,
+            'media' => $this->mediaResponse($media->fresh()),
+        ]);
+    }
+
+    /**
      * Generate an AI image via Text-to-Image (/v1/images/generations).
      */
     public function generate(Request $request): JsonResponse
@@ -53,15 +137,25 @@ class ImageStudioController extends Controller
         ]);
 
         try {
+            $promptData = $this->posterPromptBuilder->build($validated, auth()->user()->workspace_id);
+            $imageConfig = \App\Models\AiModelConfig::withoutGlobalScopes()
+                ->where('workspace_id', auth()->user()->workspace_id)
+                ->where('feature', 'image_generation')
+                ->first();
+            $modelUsed = $imageConfig?->model_id ?? 'google/gemini-3.1-flash-image-preview';
+
             $fileInfo = $this->aiService->generateImage(
-                prompt: $validated['prompt'],
+                prompt: $promptData['enhanced_prompt'],
                 style: $validated['style'] ?? 'realistic',
                 aspectRatio: $validated['aspect_ratio'] ?? '1:1',
                 quality: $validated['quality'] ?? 'auto',
                 background: $validated['background'] ?? 'auto',
             );
 
-            $media = $this->saveMedia($validated, $fileInfo, 'text-to-image');
+            $media = $this->saveMedia($validated, $fileInfo, 'advanced', [
+                ...$promptData,
+                'estimated_cost' => $this->costEstimator->imageCost($modelUsed),
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -70,7 +164,7 @@ class ImageStudioController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate gambar: ' . $e->getMessage(),
+                'message' => 'Gagal generate gambar.',
             ], 422);
         }
     }
@@ -126,7 +220,7 @@ class ImageStudioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal edit gambar: ' . $e->getMessage(),
+                'message' => 'Gagal edit gambar.',
             ], 422);
         }
     }
@@ -160,7 +254,7 @@ class ImageStudioController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate gambar via chat: ' . $e->getMessage(),
+                'message' => 'Gagal generate gambar via chat.',
             ], 422);
         }
     }
@@ -220,7 +314,7 @@ class ImageStudioController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate dari referensi: ' . $e->getMessage(),
+                'message' => 'Gagal generate dari referensi.',
             ], 422);
         }
     }
@@ -243,7 +337,10 @@ class ImageStudioController extends Controller
      */
     public function destroy(GeneratedMedia $media): RedirectResponse
     {
-        Storage::disk('public')->delete($media->file_path);
+        if (filled($media->file_path)) {
+            Storage::disk('public')->delete($media->file_path);
+        }
+
         $media->delete();
 
         return back()->with('success', 'Gambar berhasil dihapus.');
@@ -252,14 +349,14 @@ class ImageStudioController extends Controller
     /**
      * Save generated media to database.
      */
-    private function saveMedia(array $validated, array $fileInfo, string $generationMode): GeneratedMedia
+    private function saveMedia(array $validated, array $fileInfo, string $generationMode, array $metadata = []): GeneratedMedia
     {
         $imageConfig = \App\Models\AiModelConfig::withoutGlobalScopes()
             ->where('workspace_id', auth()->user()->workspace_id)
             ->where('feature', 'image_generation')
             ->first();
 
-        $modelUsed = $imageConfig?->model_id ?? 'gpt-image-1';
+        $modelUsed = $imageConfig?->model_id ?? 'google/gemini-3.1-flash-image-preview';
 
         return GeneratedMedia::create([
             'workspace_id' => auth()->user()->workspace_id,
@@ -270,11 +367,46 @@ class ImageStudioController extends Controller
             'mime_type' => $fileInfo['mime'],
             'file_size' => $fileInfo['size'],
             'prompt' => $validated['prompt'],
+            'original_prompt' => $metadata['original_prompt'] ?? $validated['prompt'],
+            'enhanced_prompt' => $metadata['enhanced_prompt'] ?? null,
+            'negative_prompt' => $metadata['negative_prompt'] ?? null,
             'provider' => 'tokenrouter',
             'model_id' => $modelUsed,
             'style' => $validated['style'] ?? null,
             'aspect_ratio' => $validated['aspect_ratio'] ?? '1:1',
             'generation_mode' => $generationMode,
+            'model_params' => $metadata['model_params'] ?? null,
+            'overlay_config' => $metadata['overlay_config'] ?? null,
+            'prompt_template_version' => $metadata['prompt_template_version'] ?? null,
+            'generation_status' => $metadata['generation_status'] ?? 'completed',
+            'estimated_cost' => $metadata['estimated_cost'] ?? $this->costEstimator->imageCost($modelUsed),
+        ]);
+    }
+
+    private function createQueuedMedia(array $validated, array $metadata, string $modelUsed): GeneratedMedia
+    {
+        return GeneratedMedia::create([
+            'workspace_id' => auth()->user()->workspace_id,
+            'created_by' => auth()->id(),
+            'type' => 'image',
+            'file_path' => '',
+            'file_name' => '',
+            'mime_type' => 'image/png',
+            'file_size' => 0,
+            'prompt' => $validated['prompt'],
+            'original_prompt' => $metadata['original_prompt'] ?? $validated['prompt'],
+            'enhanced_prompt' => $metadata['enhanced_prompt'] ?? null,
+            'negative_prompt' => $metadata['negative_prompt'] ?? null,
+            'provider' => 'tokenrouter',
+            'model_id' => $modelUsed,
+            'style' => $validated['style'] ?? null,
+            'aspect_ratio' => $validated['aspect_ratio'] ?? '1:1',
+            'generation_mode' => 'poster',
+            'model_params' => $metadata['model_params'] ?? null,
+            'overlay_config' => $metadata['overlay_config'] ?? null,
+            'prompt_template_version' => $metadata['prompt_template_version'] ?? null,
+            'generation_status' => 'queued',
+            'estimated_cost' => $metadata['estimated_cost'] ?? null,
         ]);
     }
 
@@ -286,10 +418,16 @@ class ImageStudioController extends Controller
         return [
             'id' => $media->id,
             'url' => $media->url,
+            'file_name' => $media->file_name,
             'prompt' => $media->prompt,
             'style' => $media->style,
             'aspect_ratio' => $media->aspect_ratio,
             'generation_mode' => $media->generation_mode ?? 'text-to-image',
+            'generation_status' => $media->generation_status ?? 'completed',
+            'enhanced_prompt' => $media->enhanced_prompt,
+            'overlay_config' => $media->overlay_config,
+            'estimated_cost' => $media->estimated_cost,
+            'error_message' => $media->error_message,
             'created_at' => $media->created_at->diffForHumans(),
         ];
     }

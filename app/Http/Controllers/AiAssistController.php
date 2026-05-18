@@ -4,15 +4,35 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Services\AIService;
+use App\Services\AI\AIWorkflowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AiAssistController extends Controller
 {
     public function __construct(
-        private readonly AIService $aiService,
+        private readonly AIWorkflowService $ai,
     ) {}
+
+    public function contentAssist(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'topic' => ['required', 'string', 'max:1000'],
+            'pillar' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        try {
+            return response()->json([
+                'success' => true,
+                'assist' => $this->ai->contentAssist($validated, auth()->user()->workspace_id),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'AI belum bisa membuat bantuan konten saat ini.',
+            ], 422);
+        }
+    }
 
     /**
      * Generate a hook/opening line for a Threads post.
@@ -25,26 +45,43 @@ class AiAssistController extends Controller
         ]);
 
         try {
-            $prompt = "Buatkan 1 hook/opening line yang menarik untuk post Threads tentang: {$request->topic}";
-            if ($request->pillar) {
-                $prompt .= "\nContent pillar: {$request->pillar}";
-            }
-            $prompt .= "\n\nKriteria hook yang baik:\n- Singkat (maksimal 2 kalimat)\n- Membuat penasaran\n- Relevan dengan audiens Indonesia\n- Tidak clickbait\n\nHANYA output hook-nya saja, tanpa penjelasan atau tanda kutip.";
-
-            $result = $this->aiService->complete(
-                feature: 'hook_generator',
-                userPrompt: $prompt,
-                systemPrompt: 'Kamu adalah copywriter ahli untuk platform Threads (Meta). Buatkan hook yang engaging dalam bahasa Indonesia.',
+            $hooks = $this->ai->generateHook(
+                topic: (string) $request->topic,
+                pillar: $request->pillar,
+                workspaceId: auth()->user()->workspace_id,
             );
+            $firstHook = $hooks[0]['hook'] ?? '';
 
             return response()->json([
                 'success' => true,
-                'hook' => trim($result, " \t\n\r\0\x0B\"'"),
+                'hook' => $firstHook,
+                'hooks' => $hooks,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate hook: ' . $e->getMessage(),
+                'message' => 'Gagal generate hook.',
+            ], 422);
+        }
+    }
+
+    public function generateHashtags(Request $request): JsonResponse
+    {
+        $request->validate([
+            'text' => ['required', 'string', 'max:2000'],
+        ]);
+
+        try {
+            $hashtags = $this->ai->generateHashtags((string) $request->text, auth()->user()->workspace_id);
+
+            return response()->json([
+                'success' => true,
+                'hashtags' => $hashtags,
+            ]);
+        } catch (\Exception) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal generate hashtag.',
             ], 422);
         }
     }
@@ -61,23 +98,16 @@ class AiAssistController extends Controller
 
         try {
             $instruction = $request->instruction ?? 'Perbaiki tata bahasa dan buat lebih engaging';
-
-            $prompt = "Perbaiki teks berikut untuk post Threads:\n\n\"{$request->text}\"\n\nInstruksi: {$instruction}\n\nKriteria:\n- Tetap natural dan conversational\n- Gunakan bahasa Indonesia yang baik\n- Maksimal 500 karakter\n- Jaga esensi pesan asli\n\nHANYA output teks yang sudah diperbaiki, tanpa penjelasan.";
-
-            $result = $this->aiService->complete(
-                feature: 'copywriting',
-                userPrompt: $prompt,
-                systemPrompt: 'Kamu adalah editor konten media sosial. Perbaiki teks agar lebih menarik di Threads.',
-            );
+            $result = $this->ai->improveText((string) $request->text, (string) $instruction, auth()->user()->workspace_id);
 
             return response()->json([
                 'success' => true,
-                'text' => trim($result, " \t\n\r\0\x0B\"'"),
+                'text' => $result,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memperbaiki teks: ' . $e->getMessage(),
+                'message' => 'Gagal memperbaiki teks.',
             ], 422);
         }
     }
@@ -94,23 +124,7 @@ class AiAssistController extends Controller
 
         try {
             $count = $request->count ?? 5;
-
-            $prompt = "Buatkan {$count} ide konten Threads tentang: {$request->topic}\n\nFormat output JSON array:\n[{\"title\": \"Judul ide\", \"description\": \"Deskripsi singkat 1 kalimat\"}]\n\nHANYA output JSON array, tanpa teks lain.";
-
-            $result = $this->aiService->complete(
-                feature: 'copywriting',
-                userPrompt: $prompt,
-                systemPrompt: 'Kamu adalah content strategist untuk media sosial Threads. Berikan ide kreatif dalam bahasa Indonesia. Selalu output dalam format JSON array yang valid.',
-            );
-
-            // Parse JSON response
-            $cleaned = trim($result);
-            if (str_starts_with($cleaned, '```')) {
-                $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);
-                $cleaned = preg_replace('/\s*```$/', '', $cleaned);
-            }
-
-            $ideas = json_decode($cleaned, true) ?? [];
+            $ideas = $this->ai->generateIdeas((string) $request->topic, (int) $count, auth()->user()->workspace_id);
 
             return response()->json([
                 'success' => true,
@@ -119,7 +133,7 @@ class AiAssistController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal generate ide: ' . $e->getMessage(),
+                'message' => 'Gagal generate ide.',
             ], 422);
         }
     }
