@@ -63,6 +63,12 @@ return [
             'max_tokens' => 900,
             'temperature' => 0.50,
         ],
+        'ready_post' => [
+            'feature' => 'copywriting',
+            'cache' => true,
+            'max_tokens' => 950,
+            'temperature' => 0.50,
+        ],
         'copywriting_thread' => [
             'feature' => 'copywriting',
             'cache' => false,

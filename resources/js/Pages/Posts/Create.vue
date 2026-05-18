@@ -17,6 +17,7 @@ const form = useForm({
     publish_mode: 'manual',
     link_url: '',
     media: [],
+    generated_media_ids: [],
 });
 
 const hookCount = computed(() => form.hook.length);
@@ -25,6 +26,11 @@ const fileInput = ref(null);
 const isDragging = ref(false);
 const mediaError = ref('');
 const mediaPreviews = ref([]);
+const totalMediaCount = computed(() => mediaPreviews.value.length);
+const readyBrief = ref('');
+const readyGenerateImage = ref(true);
+const readyStyle = ref('photography');
+const readyAspectRatio = ref('1:1');
 
 const submit = (status) => {
     form.status = status;
@@ -36,7 +42,7 @@ const submit = (status) => {
 const addMediaFiles = (fileList) => {
     mediaError.value = '';
     const files = Array.from(fileList || []);
-    const availableSlots = 4 - form.media.length;
+    const availableSlots = 4 - totalMediaCount.value;
 
     if (availableSlots <= 0) {
         mediaError.value = 'Maksimal 4 media per post.';
@@ -56,6 +62,8 @@ const addMediaFiles = (fileList) => {
             type: file.type,
             size: file.size,
             url: previewUrl,
+            source: 'upload',
+            isObjectUrl: Boolean(previewUrl),
         });
     });
 
@@ -70,10 +78,16 @@ const handleFileChange = (event) => {
 
 const removeMedia = (index) => {
     const [preview] = mediaPreviews.value.splice(index, 1);
-    if (preview?.url) {
+    if (preview?.isObjectUrl && preview?.url) {
         URL.revokeObjectURL(preview.url);
     }
-    form.media.splice(index, 1);
+
+    if (preview?.source === 'ai') {
+        form.generated_media_ids = form.generated_media_ids.filter((id) => id !== preview.generated_media_id);
+        return;
+    }
+
+    form.media = form.media.filter((file) => `${file.name}-${file.lastModified}-${file.size}` !== preview?.id);
 };
 
 const chooseFiles = () => {
@@ -101,6 +115,80 @@ const qualityChecks = computed(() => [
 const aiLoading = ref('');
 const aiError = ref('');
 const hookSuggestions = ref([]);
+
+const appendGeneratedMediaPreview = (media) => {
+    if (!media?.id || form.generated_media_ids.includes(media.id) || totalMediaCount.value >= 4) {
+        return;
+    }
+
+    form.generated_media_ids.push(media.id);
+    mediaPreviews.value.push({
+        id: `ai-${media.id}`,
+        generated_media_id: media.id,
+        name: media.file_name || 'AI poster',
+        type: media.mime_type || 'image/png',
+        size: media.file_size || 0,
+        url: media.url || null,
+        source: 'ai',
+        isObjectUrl: false,
+    });
+};
+
+const generateReadyPost = async () => {
+    const topic = readyBrief.value.trim() || [form.hook, form.body].filter(Boolean).join('\n\n').trim();
+    if (!topic) {
+        aiError.value = 'Tulis brief atau isi post terlebih dahulu.';
+        setTimeout(() => aiError.value = '', 3000);
+        return;
+    }
+
+    const shouldGenerateImage = readyGenerateImage.value && totalMediaCount.value < 4;
+    if (readyGenerateImage.value && !shouldGenerateImage) {
+        mediaError.value = 'Hapus salah satu media sebelum generate gambar AI.';
+        setTimeout(() => mediaError.value = '', 4000);
+        return;
+    }
+
+    aiLoading.value = 'ready';
+    aiError.value = '';
+    mediaError.value = '';
+    try {
+        const pillar = props.pillars.find(p => p.id === form.content_pillar_id);
+        const res = await fetch(route('ai.ready-post'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                topic,
+                pillar: pillar?.name || null,
+                style: readyStyle.value,
+                aspect_ratio: readyAspectRatio.value,
+                generate_image: shouldGenerateImage,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            form.hook = data.post?.hook || form.hook;
+            form.body = data.post?.body || form.body;
+            hookSuggestions.value = data.post?.hook_variants || [];
+
+            if (data.media?.generation_status === 'completed') {
+                appendGeneratedMediaPreview(data.media);
+            }
+        } else {
+            aiError.value = data.message || 'Gagal generate post siap posting.';
+            setTimeout(() => aiError.value = '', 5000);
+        }
+    } catch (e) {
+        aiError.value = 'Koneksi AI gagal. Coba lagi.';
+        setTimeout(() => aiError.value = '', 5000);
+    } finally {
+        aiLoading.value = '';
+    }
+};
 
 const generateHook = async () => {
     if (!form.body && !form.hook) {
@@ -149,7 +237,7 @@ const improveText = async () => {
     aiLoading.value = 'improve';
     aiError.value = '';
     try {
-        const res = await fetch(route('ai.generate-hashtags'), {
+        const res = await fetch(route('ai.improve-text'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -185,7 +273,7 @@ const suggestHashtags = async () => {
     aiLoading.value = 'hashtag';
     aiError.value = '';
     try {
-        const res = await fetch(route('ai.improve-text'), {
+        const res = await fetch(route('ai.generate-hashtags'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -308,7 +396,10 @@ const suggestHashtags = async () => {
                                         <IconPhoto v-else :size="22" class="text-on-surface-variant" :stroke-width="1.5" />
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <p class="text-sm font-medium text-on-background truncate">{{ media.name }}</p>
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <p class="text-sm font-medium text-on-background truncate">{{ media.name }}</p>
+                                            <span v-if="media.source === 'ai'" class="shrink-0 text-[10px] font-bold text-primary bg-primary-container/30 rounded px-1.5 py-0.5">AI</span>
+                                        </div>
                                         <p class="text-xs text-on-surface-variant">{{ fileSizeLabel(media.size) }}</p>
                                     </div>
                                     <button
@@ -351,7 +442,47 @@ const suggestHashtags = async () => {
                         {{ aiError }}
                     </div>
 
-                    <div class="space-y-2">
+                    <div class="space-y-3">
+                        <div class="space-y-2 rounded-lg border border-outline-variant/60 p-3 bg-surface-container-low">
+                            <label class="text-body-sm font-semibold text-on-background block">Brief Post + Gambar</label>
+                            <textarea
+                                v-model="readyBrief"
+                                rows="3"
+                                maxlength="1000"
+                                class="w-full border border-outline-variant rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-secondary outline-none resize-none bg-white"
+                                placeholder="Contoh: edukasi AI untuk UMKM agar admin chat pelanggan lebih rapi"
+                            />
+                            <div class="grid grid-cols-2 gap-2">
+                                <select v-model="readyStyle" class="border border-outline-variant rounded-lg px-2 py-2 text-xs bg-white focus:ring-2 focus:ring-secondary outline-none">
+                                    <option value="photography">Photography</option>
+                                    <option value="realistic">Realistic</option>
+                                    <option value="minimalist">Minimalist</option>
+                                    <option value="illustration">Illustration</option>
+                                    <option value="3d">3D Render</option>
+                                    <option value="cartoon">Cartoon</option>
+                                </select>
+                                <select v-model="readyAspectRatio" class="border border-outline-variant rounded-lg px-2 py-2 text-xs bg-white focus:ring-2 focus:ring-secondary outline-none">
+                                    <option value="1:1">1:1 Square</option>
+                                    <option value="4:5">4:5 Portrait</option>
+                                    <option value="16:9">16:9 Wide</option>
+                                    <option value="9:16">9:16 Story</option>
+                                </select>
+                            </div>
+                            <label class="flex items-center gap-2 text-xs text-on-surface-variant">
+                                <input v-model="readyGenerateImage" type="checkbox" class="rounded border-outline-variant text-primary focus:ring-primary" />
+                                Generate gambar AI
+                            </label>
+                            <button
+                                type="button"
+                                @click="generateReadyPost"
+                                :disabled="aiLoading !== ''"
+                                class="w-full px-3 py-2 rounded-lg bg-primary text-on-primary text-sm font-bold hover:brightness-105 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                <IconLoader2 v-if="aiLoading === 'ready'" :size="16" :stroke-width="1.5" class="animate-spin" />
+                                <IconSparkles v-else :size="16" :stroke-width="1.5" />
+                                {{ aiLoading === 'ready' ? 'Menyiapkan post...' : 'Generate Post + Gambar' }}
+                            </button>
+                        </div>
                         <button
                             @click="generateHook"
                             :disabled="aiLoading !== ''"
@@ -409,6 +540,17 @@ const suggestHashtags = async () => {
                         </div>
                         <p v-if="form.hook" class="text-sm font-semibold text-on-background mb-1">{{ form.hook }}</p>
                         <p class="text-sm text-on-surface-variant whitespace-pre-line">{{ form.body || 'Tulis isi konten Anda di sini...' }}</p>
+                        <div v-if="mediaPreviews.length" class="mt-3 grid grid-cols-2 gap-2">
+                            <div
+                                v-for="media in mediaPreviews"
+                                :key="`preview-${media.id}`"
+                                class="aspect-square rounded-lg bg-surface-container overflow-hidden flex items-center justify-center"
+                            >
+                                <img v-if="media.url" :src="media.url" alt="" class="w-full h-full object-cover" />
+                                <IconVideo v-else-if="media.type.startsWith('video/')" :size="24" class="text-on-surface-variant" :stroke-width="1.5" />
+                                <IconPhoto v-else :size="24" class="text-on-surface-variant" :stroke-width="1.5" />
+                            </div>
+                        </div>
                     </div>
                 </div>
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Services\AI\AIWorkflowService;
+use App\Services\AI\ReadyPostWorkflowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -12,6 +13,7 @@ class AiAssistController extends Controller
 {
     public function __construct(
         private readonly AIWorkflowService $ai,
+        private readonly ReadyPostWorkflowService $readyPost,
     ) {}
 
     public function contentAssist(Request $request): JsonResponse
@@ -134,6 +136,39 @@ class AiAssistController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal generate ide.',
+            ], 422);
+        }
+    }
+
+    public function readyPost(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'topic' => ['required', 'string', 'max:1000'],
+            'pillar' => ['nullable', 'string', 'max:100'],
+            'tone' => ['nullable', 'string', 'max:80'],
+            'headline' => ['nullable', 'string', 'max:80'],
+            'style' => ['nullable', 'string', 'in:realistic,illustration,cartoon,minimalist,3d,photography'],
+            'aspect_ratio' => ['nullable', 'string', 'in:1:1,4:5,16:9,9:16'],
+            'quality' => ['nullable', 'string', 'in:auto,low,medium,high'],
+            'background' => ['nullable', 'string', 'in:auto,transparent,opaque'],
+            'generate_image' => ['nullable', 'boolean'],
+        ]);
+
+        try {
+            $result = $this->readyPost->generate(
+                input: $validated,
+                workspaceId: (int) auth()->user()->workspace_id,
+                userId: (int) auth()->id(),
+            );
+
+            return response()->json([
+                'success' => true,
+                ...$result,
+            ]);
+        } catch (\Exception) {
+            return response()->json([
+                'success' => false,
+                'message' => 'AI belum bisa membuat paket post siap posting saat ini.',
             ], 422);
         }
     }

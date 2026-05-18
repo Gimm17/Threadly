@@ -79,6 +79,7 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
         // AI Assist
         Route::prefix('ai')->name('ai.')->group(function () {
             Route::post('content-assist', [AiAssistController::class, 'contentAssist'])->name('content-assist');
+            Route::post('ready-post', [AiAssistController::class, 'readyPost'])->name('ready-post');
             Route::post('generate-hook', [AiAssistController::class, 'generateHook'])->name('generate-hook');
             Route::post('generate-hashtags', [AiAssistController::class, 'generateHashtags'])->name('generate-hashtags');
             Route::post('improve-text', [AiAssistController::class, 'improveText'])->name('improve-text');

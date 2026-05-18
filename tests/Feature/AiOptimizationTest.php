@@ -150,4 +150,65 @@ class AiOptimizationTest extends TestCase
         $this->assertSame('AI Bantu UMKM', $media->overlay_config['headline']);
         Storage::disk('public')->assertExists($media->file_path);
     }
+
+    public function test_ready_post_generates_copy_and_image_media(): void
+    {
+        Storage::fake('public');
+
+        $base64 = base64_encode('ready-post-image');
+        Http::fake([
+            'https://api.tokenrouter.com/v1/chat/completions' => Http::sequence()
+                ->push([
+                    'choices' => [[
+                        'message' => [
+                            'content' => json_encode([
+                                'hook' => 'Admin chat mulai kewalahan?',
+                                'hook_variants' => [
+                                    ['hook' => 'Admin chat mulai kewalahan?', 'angle' => 'pain point', 'score' => 86],
+                                ],
+                                'body' => "Mulai dari satu alur sederhana: pisahkan chat tanya harga, follow-up, dan komplain.\n\n#UMKM #CustomerService",
+                                'hashtags' => ['#UMKM', '#CustomerService'],
+                                'headline' => 'Chat Lebih Rapi',
+                                'poster_brief' => 'Professional Indonesian small business admin desk, clean composition, no visible text.',
+                                'quality_notes' => ['Siap dipakai'],
+                            ]),
+                        ],
+                    ]],
+                    'usage' => ['prompt_tokens' => 120, 'completion_tokens' => 120, 'total_tokens' => 240],
+                ])
+                ->push([
+                    'choices' => [[
+                        'message' => [
+                            'content' => [
+                                [
+                                    'type' => 'image_url',
+                                    'image_url' => ['url' => "data:image/png;base64,{$base64}"],
+                                ],
+                            ],
+                        ],
+                    ]],
+                    'usage' => ['prompt_tokens' => 20, 'completion_tokens' => 0, 'total_tokens' => 20],
+                ]),
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson('/ai/ready-post', [
+                'topic' => 'Buat post edukasi tentang merapikan admin chat UMKM',
+                'pillar' => 'Edukasi AI',
+                'style' => 'photography',
+                'aspect_ratio' => '1:1',
+                'generate_image' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('post.hook', 'Admin chat mulai kewalahan?')
+            ->assertJsonPath('media.generation_mode', 'ready-post')
+            ->assertJsonPath('media.generation_status', 'completed');
+
+        $media = GeneratedMedia::withoutGlobalScopes()->firstOrFail();
+
+        $this->assertSame('Chat Lebih Rapi', $media->overlay_config['headline']);
+        $this->assertStringContainsString('no visible text', $media->enhanced_prompt);
+        Storage::disk('public')->assertExists($media->file_path);
+        Http::assertSentCount(2);
+    }
 }

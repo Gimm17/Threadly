@@ -239,6 +239,69 @@ class AIWorkflowService
         return mb_substr($content, 0, $maxLength);
     }
 
+    public function generateReadyPostCopy(array $input, ?int $workspaceId = null): array
+    {
+        $workflow = $this->prompts->workflow('ready_post');
+        $feature = $workflow['feature'] ?? 'copywriting';
+        $modelId = $this->modelId($feature, $workspaceId);
+        $cacheInput = [
+            'topic' => trim((string) ($input['topic'] ?? '')),
+            'pillar' => trim((string) ($input['pillar'] ?? '')),
+            'tone' => (string) ($input['tone'] ?? 'professional-practical-warm'),
+        ];
+
+        return $this->cache->remember('ready_post_copy', $workspaceId, $modelId, $cacheInput, function () use ($cacheInput, $workspaceId, $workflow, $feature) {
+            $topic = $cacheInput['topic'];
+            $pillar = $cacheInput['pillar'];
+            $tone = $cacheInput['tone'];
+            $system = $this->prompts->systemPrompt('senior Threads copywriter dan art director', $workspaceId);
+            $prompt = <<<PROMPT
+            Buat satu paket konten Threads yang siap dipakai dari brief berikut.
+
+            Brief/topik:
+            {$topic}
+
+            Content pillar:
+            {$pillar}
+
+            Tone:
+            {$tone}
+
+            Output JSON object valid dengan schema:
+            {
+              "hook": "hook utama maksimal 150 karakter",
+              "hook_variants": [{"hook": "variasi hook maksimal 150 karakter", "angle": "angle singkat", "score": 1-100}],
+              "body": "isi post final maksimal 500 karakter, sudah termasuk CTA dan hashtag jika relevan",
+              "hashtags": ["#tag1", "#tag2", "#tag3"],
+              "headline": "headline poster 3-6 kata",
+              "poster_brief": "English visual prompt brief for image generation, no text in image",
+              "quality_notes": ["catatan singkat"]
+            }
+
+            Aturan copy:
+            - Output hook, body, headline, dan quality_notes dalam Bahasa Indonesia.
+            - Body harus langsung siap publish di Threads, maksimal 500 karakter.
+            - Body tidak perlu mengulang hook secara persis, tapi harus nyambung dengan hook.
+            - Beri nilai praktis dan contoh operasional, bukan slogan.
+            - CTA harus natural dan soft, misalnya ajakan simpan, cek proses, atau diskusi.
+            - Hashtag maksimal 3 di akhir body, relevan, tanpa #viral/#fyp/#trending.
+            - Jangan mengarang data, hasil klien, angka, testimoni, atau klaim performa.
+            - Hindari "Bayangkan", "Rahasia", "POV", "Kamu wajib tahu", dan hard selling.
+
+            Aturan poster_brief:
+            - Tulis dalam Bahasa Inggris.
+            - Fokus pada visual/background berkualitas, bukan teks di gambar.
+            - Sertakan subject, scene, composition, brand cue, palette, lighting, negative space, dan no visible text.
+            - Cocok untuk poster square atau portrait di Threads/Instagram.
+            - Jangan tulis markdown atau penjelasan di luar JSON.
+            PROMPT;
+
+            $result = $this->completeJson($feature, $prompt, $system, $workspaceId, (int) ($workflow['max_tokens'] ?? 950));
+
+            return $this->normalizeReadyPostCopy(is_array($result) ? $result : []);
+        }, (bool) ($workflow['cache'] ?? true));
+    }
+
     public function generateVariations(string $text, int $count, ?int $workspaceId = null): array
     {
         $workflow = $this->prompts->workflow('copywriting_variations');
@@ -349,6 +412,56 @@ class AIWorkflowService
             'hooks' => array_values(array_filter($hooks, fn ($hook) => filled($hook['hook']))),
             'cta' => mb_substr(trim((string) ($result['cta'] ?? '')), 0, 100),
             'hashtags' => array_values(array_slice(array_filter(array_map([$this, 'normalizeHashtag'], $result['hashtags'] ?? [])), 0, 5)),
+            'quality_notes' => array_values(array_slice((array) ($result['quality_notes'] ?? []), 0, 4)),
+        ];
+    }
+
+    private function normalizeReadyPostCopy(array $result): array
+    {
+        $hook = mb_substr(trim((string) ($result['hook'] ?? $result['opening'] ?? '')), 0, 150);
+        $body = $this->cleanGeneratedText((string) ($result['body'] ?? $result['content'] ?? $result['post'] ?? ''));
+        $hashtags = array_values(array_slice(array_filter(array_map([$this, 'normalizeHashtag'], $result['hashtags'] ?? [])), 0, 3));
+
+        if ($body !== '' && ! empty($hashtags)) {
+            $bodyWithoutTags = preg_replace('/\n?\s*(#[\p{L}\p{N}_]+\s*)+$/u', '', $body) ?? $body;
+            $candidate = trim($bodyWithoutTags) . "\n\n" . implode(' ', $hashtags);
+            $body = mb_strlen($candidate) <= 500 ? $candidate : $body;
+        }
+
+        $hookVariants = is_array($result['hook_variants'] ?? null)
+            ? $result['hook_variants']
+            : (is_array($result['hooks'] ?? null) ? $result['hooks'] : []);
+
+        $hookVariants = array_values(array_filter(array_map(function ($item) {
+            $variant = is_array($item) ? $item : ['hook' => (string) $item];
+            $text = mb_substr(trim((string) ($variant['hook'] ?? $variant['text'] ?? '')), 0, 150);
+
+            if ($text === '') {
+                return null;
+            }
+
+            return [
+                'hook' => $text,
+                'angle' => mb_substr(trim((string) ($variant['angle'] ?? '')), 0, 60),
+                'score' => max(1, min(100, (int) ($variant['score'] ?? 75))),
+            ];
+        }, array_slice($hookVariants, 0, 5))));
+
+        if ($hook === '' && $hookVariants !== []) {
+            $hook = $hookVariants[0]['hook'];
+        }
+
+        if ($body === '') {
+            throw new \RuntimeException('AI tidak mengembalikan isi post yang bisa dipakai.');
+        }
+
+        return [
+            'hook' => $hook,
+            'hook_variants' => $hookVariants,
+            'body' => mb_substr(trim($body), 0, 500),
+            'hashtags' => $hashtags,
+            'headline' => mb_substr(trim((string) ($result['headline'] ?? $hook)), 0, 80),
+            'poster_brief' => mb_substr(trim((string) ($result['poster_brief'] ?? $result['image_prompt'] ?? $body)), 0, 1000),
             'quality_notes' => array_values(array_slice((array) ($result['quality_notes'] ?? []), 0, 4)),
         ];
     }

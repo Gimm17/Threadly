@@ -6,6 +6,7 @@ use App\Jobs\SendPostReminderJob;
 use App\Models\AnalyticsSnapshot;
 use App\Models\ContentIdea;
 use App\Models\ContentPillar;
+use App\Models\GeneratedMedia;
 use App\Models\HookTemplate;
 use App\Models\Notification;
 use App\Models\Post;
@@ -113,6 +114,52 @@ class FullFeatureTest extends TestCase
 
         $this->assertSame($this->workspace->id, $post->workspace_id);
         $this->assertSame($post->id, $media->post_id);
+        Storage::disk('public')->assertExists($media->file_path);
+    }
+
+    public function test_post_can_be_created_with_generated_ai_media(): void
+    {
+        Storage::fake('public');
+
+        $generatedPath = "workspaces/{$this->workspace->id}/generated/ai-ready.png";
+        Storage::disk('public')->put($generatedPath, 'fake image');
+
+        $generated = GeneratedMedia::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'created_by' => $this->user->id,
+            'type' => 'image',
+            'file_path' => $generatedPath,
+            'file_name' => 'ai-ready.png',
+            'mime_type' => 'image/png',
+            'file_size' => Storage::disk('public')->size($generatedPath),
+            'prompt' => 'Poster edukasi AI untuk UMKM',
+            'enhanced_prompt' => 'Create a premium social media poster background.',
+            'provider' => 'tokenrouter',
+            'model_id' => 'google/gemini-3.1-flash-image-preview',
+            'style' => 'photography',
+            'aspect_ratio' => '1:1',
+            'generation_status' => 'completed',
+        ]);
+
+        $this->actingAs($this->user)
+            ->post('/posts', [
+                'body' => 'Konten siap posting dengan poster AI.',
+                'hook' => 'Poster AI siap pakai.',
+                'content_pillar_id' => $this->pillar->id,
+                'status' => 'draft',
+                'publish_mode' => 'manual',
+                'generated_media_ids' => [$generated->id],
+            ])
+            ->assertRedirect(route('posts.index'));
+
+        $post = Post::withoutGlobalScopes()->firstOrFail();
+        $media = PostMedia::firstOrFail();
+
+        $this->assertSame($post->id, $media->post_id);
+        $this->assertTrue($media->is_ai_generated);
+        $this->assertStringContainsString("/posts/{$post->id}/", str_replace('\\', '/', $media->file_path));
+        $this->assertSame($post->id, $generated->fresh()->post_id);
+        Storage::disk('public')->assertExists($generatedPath);
         Storage::disk('public')->assertExists($media->file_path);
     }
 

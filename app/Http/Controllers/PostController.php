@@ -71,7 +71,7 @@ class PostController extends Controller
     public function store(StorePostRequest $request): RedirectResponse
     {
         $post = Post::create([
-            ...$request->safe()->except('media'),
+            ...$request->safe()->except('media', 'generated_media_ids'),
             'created_by' => auth()->id(),
         ]);
 
@@ -80,6 +80,11 @@ class PostController extends Controller
                 $this->mediaService->upload($file, $post);
             }
         }
+
+        $this->mediaService->attachGeneratedMediaIds(
+            (array) $request->input('generated_media_ids', []),
+            $post,
+        );
 
         $this->postReminderService->scheduleReminder($post);
         $this->logActivity('created', $post);
@@ -114,13 +119,18 @@ class PostController extends Controller
 
     public function update(StorePostRequest $request, Post $post): RedirectResponse
     {
-        $post->update($request->safe()->except('media'));
+        $post->update($request->safe()->except('media', 'generated_media_ids'));
 
         if ($request->hasFile('media')) {
             foreach ($request->file('media') as $file) {
                 $this->mediaService->upload($file, $post);
             }
         }
+
+        $this->mediaService->attachGeneratedMediaIds(
+            (array) $request->input('generated_media_ids', []),
+            $post,
+        );
 
         $this->postReminderService->scheduleReminder($post);
         $this->logActivity('updated', $post);
