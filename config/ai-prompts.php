@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'version' => '2026-05-18-v4',
+    'version' => '2026-05-18-v7',
 
     'brand_profile' => [
         'brand_name' => 'Gimora Digital',
@@ -96,7 +96,7 @@ return [
     ],
 
     'poster' => [
-        'negative_prompt' => 'No watermark, no logo on objects, no random logo, no visible text unless explicitly requested, no letters, no numbers, no labels, no garbled words, no app UI text, no chart labels, no document text, no cramped layout, no distorted faces or hands, no low-resolution artifacts, no screenshots.',
+        'negative_prompt' => 'No watermark, no logo on objects, no random logo, no visible text unless explicitly requested, no letters, no numbers, no labels, no garbled words, no app UI text, no chart labels, no document text, no cramped layout, no distorted faces or hands, no low-resolution artifacts, no screenshots, no split-screen, no vertical side panel, no blurred sidebar, no collage.',
         'safe_area' => 'Leave a clean negative-space zone for deterministic text overlay in the upper or lower third; keep the main subject outside that zone.',
         'default_palette' => 'deep navy, clean white, fresh green, warm amber accent',
         'default_style' => 'premium social media poster, clean editorial composition, modern Indonesian tech brand',

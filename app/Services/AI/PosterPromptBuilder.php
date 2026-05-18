@@ -23,6 +23,7 @@ class PosterPromptBuilder
         $negative = (string) config('ai-prompts.poster.negative_prompt');
         $safeArea = (string) config('ai-prompts.poster.safe_area');
         $palette = (string) ($input['palette'] ?? config('ai-prompts.poster.default_palette'));
+        $styleInstruction = $this->styleInstruction($style);
 
         $textInstruction = $allowAiText && $headline !== ''
             ? "Include only this short, readable headline text: \"{$this->shortHeadline($headline)}\". No other text."
@@ -34,9 +35,10 @@ class PosterPromptBuilder
         Brand cue: {$brand['brand_name']} (@{$brand['threads_handle']}), modern Indonesian technology partner, trustworthy and practical.
         Audience: {$brand['audience']}.
         Core brief: {$brief}.
+        Visual style: {$styleInstruction}
         Foreground subject: {$subject}.
         Scene and props: realistic Indonesian business/admin context, tidy desk or work setup, subtle visual hints of invoice, stock checklist, customer chat, or daily report when relevant, but all screens and papers must be blank or use abstract non-text shapes only.
-        Composition: editorial poster, clear focal point, clean hierarchy, strong depth, balanced negative space, no crowded objects.
+        Composition: one coherent single-scene editorial poster, clear focal point, clean hierarchy, strong depth, balanced negative space, no crowded objects, no split-screen, no collage, no vertical side panel.
         Palette: {$palette}.
         Lighting: crisp soft light, polished commercial finish, high contrast without looking harsh.
         Aspect ratio: {$aspectRatio}.
@@ -71,5 +73,17 @@ class PosterPromptBuilder
         $words = preg_split('/\s+/', trim($headline)) ?: [];
 
         return implode(' ', array_slice($words, 0, 6));
+    }
+
+    private function styleInstruction(string $style): string
+    {
+        return match ($style) {
+            '3d' => 'premium 3D render with polished soft materials, subtle isometric depth, ecommerce website dashboard elements as abstract non-text shapes, product cards, shopping bag, receipt and admin-fee cues represented by simple coins or sliders; not a real photograph.',
+            'illustration' => 'clean editorial illustration, modern vector-like shapes, warm Indonesian business context, premium but practical.',
+            'minimalist' => 'minimalist premium poster, generous negative space, few refined objects, calm composition.',
+            'cartoon' => 'friendly polished cartoon style, professional and not childish, simple shapes and expressive business props.',
+            'photography' => 'premium realistic photography, natural Indonesian workspace, polished commercial lighting.',
+            default => 'high-quality realistic social media poster, polished and production-ready.',
+        };
     }
 }

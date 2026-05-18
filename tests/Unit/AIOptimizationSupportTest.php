@@ -50,6 +50,20 @@ class AIOptimizationSupportTest extends TestCase
         $this->assertSame('AI Bantu UMKM', $prompt['overlay_config']['headline']);
     }
 
+    public function test_poster_prompt_builder_respects_3d_style(): void
+    {
+        $prompt = app(PosterPromptBuilder::class)->build([
+            'prompt' => 'Migrasi dari marketplace ke website sendiri',
+            'style' => '3d',
+            'aspect_ratio' => '1:1',
+        ]);
+
+        $this->assertStringContainsString('premium 3D render', $prompt['enhanced_prompt']);
+        $this->assertStringContainsString('not a real photograph', $prompt['enhanced_prompt']);
+        $this->assertStringContainsString('no split-screen', $prompt['enhanced_prompt']);
+        $this->assertStringContainsString('no vertical side panel', $prompt['negative_prompt']);
+    }
+
     public function test_ai_cache_key_includes_prompt_version(): void
     {
         $cache = app(AICacheService::class);

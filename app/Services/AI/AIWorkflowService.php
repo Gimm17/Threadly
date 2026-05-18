@@ -271,7 +271,7 @@ class AIWorkflowService
             {
               "hook": "hook utama maksimal 150 karakter",
               "hook_variants": [{"hook": "variasi hook maksimal 150 karakter", "angle": "angle singkat", "score": 1-100}],
-              "body": "isi post final maksimal 500 karakter, sudah termasuk CTA dan hashtag jika relevan",
+              "body": "isi post final ideal 350-450 karakter dan maksimal 500 karakter, sudah termasuk CTA dan hashtag jika relevan",
               "hashtags": ["#tag1", "#tag2", "#tag3"],
               "headline": "headline poster 3-6 kata",
               "poster_brief": "English visual prompt brief for image generation, no text in image",
@@ -281,6 +281,7 @@ class AIWorkflowService
             Aturan copy:
             - Output hook, body, headline, dan quality_notes dalam Bahasa Indonesia.
             - Body harus langsung siap publish di Threads, maksimal 500 karakter.
+            - Body idealnya 350-450 karakter supaya tidak perlu dipotong sistem.
             - Body tidak perlu mengulang hook secara persis, tapi harus nyambung dengan hook.
             - Beri nilai praktis dan contoh operasional, bukan slogan.
             - CTA harus natural dan soft, misalnya ajakan simpan, cek proses, atau diskusi.
@@ -288,6 +289,7 @@ class AIWorkflowService
             - Jangan mengarang data, hasil klien, angka, testimoni, atau klaim performa.
             - Dilarang menulis angka, persentase, rentang biaya, atau estimasi penghematan kecuali angka itu eksplisit ada di brief.
             - Jika brief hanya menyebut "mahal", tulis secara kualitatif seperti "biaya admin terasa berat", tanpa angka.
+            - Jangan klaim "tanpa biaya", "tidak ada potongan", atau "gratis transaksi". Gunakan frasa aman seperti "biaya lebih terkendali" atau "lebih leluasa mengatur margin".
             - Jangan pakai emoji, simbol checklist, bullet dekoratif, atau karakter hias. Gunakan kalimat pendek yang rapi.
             - Hindari "Bayangkan", "Rahasia", "POV", "Kamu wajib tahu", dan hard selling.
 
@@ -494,6 +496,16 @@ class AIWorkflowService
 
         $limit = max(1, $maxLength - 3);
         $trimmed = mb_substr($text, 0, $limit);
+        $sentenceCut = max(
+            mb_strrpos($trimmed, '. ') ?: 0,
+            mb_strrpos($trimmed, '? ') ?: 0,
+            mb_strrpos($trimmed, '! ') ?: 0,
+        );
+
+        if ($sentenceCut > (int) floor($limit * 0.60)) {
+            return rtrim(mb_substr($trimmed, 0, $sentenceCut + 1));
+        }
+
         $lastSpace = mb_strrpos($trimmed, ' ');
 
         if ($lastSpace !== false && $lastSpace > (int) floor($limit * 0.75)) {

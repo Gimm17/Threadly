@@ -30,6 +30,11 @@ class AIService
         return filter_var(config('services.tokenrouter.verify_ssl', true), FILTER_VALIDATE_BOOL);
     }
 
+    private function imageTimeout(): int
+    {
+        return max(60, min(900, (int) config('services.tokenrouter.image_timeout', 180)));
+    }
+
     /**
      * Send a completion request to TokenRouter (OpenAI-compatible).
      *
@@ -201,7 +206,7 @@ class AIService
 
                 $response = Http::withToken($this->apiKey)
                     ->withOptions(['verify' => $this->verifySsl()])
-                    ->timeout(180)
+                    ->timeout($this->imageTimeout())
                     ->retry(2, 5000)
                     ->post($this->baseUrl . '/chat/completions', $payload);
             } else {
@@ -222,7 +227,7 @@ class AIService
 
                 $response = Http::withToken($this->apiKey)
                     ->withOptions(['verify' => $this->verifySsl()])
-                    ->timeout(150)
+                    ->timeout($this->imageTimeout())
                     ->retry(2, 3000)
                     ->post($this->baseUrl . '/images/generations', $payload);
             }
@@ -313,7 +318,7 @@ class AIService
 
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
-                ->timeout(180)
+                ->timeout($this->imageTimeout())
                 ->asMultipart()
                 ->post($this->baseUrl . '/images/edits', $multipart);
 
@@ -387,7 +392,7 @@ class AIService
 
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
-                ->timeout(150)
+                ->timeout($this->imageTimeout())
                 ->retry(2, 3000)
                 ->post($this->baseUrl . '/chat/completions', $payload);
 
@@ -467,7 +472,7 @@ class AIService
 
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
-                ->timeout(180)
+                ->timeout($this->imageTimeout())
                 ->retry(2, 3000)
                 ->post($this->baseUrl . '/chat/completions', $payload);
 

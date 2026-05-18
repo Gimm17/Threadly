@@ -44,6 +44,7 @@ return [
         'key' => env('TOKENROUTER_API_KEY'),
         'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.com/v1'),
         'verify_ssl' => env('TOKENROUTER_VERIFY_SSL', true),
+        'image_timeout' => env('TOKENROUTER_IMAGE_TIMEOUT', 180),
     ],
 
     /*

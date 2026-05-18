@@ -33,7 +33,7 @@ class ReadyPostWorkflowService
                 'background' => $input['background'] ?? 'auto',
                 'allow_ai_text' => false,
                 'objective' => 'create a ready-to-post social media visual that supports the caption',
-                'subject' => $input['subject'] ?? 'Indonesian small business owner or admin team using technology in a tidy workspace',
+                'subject' => $input['subject'] ?? $this->defaultSubjectForStyle((string) ($input['style'] ?? 'photography')),
             ];
 
             $promptData = $this->posterPromptBuilder->build($posterInput, $workspaceId);
@@ -113,6 +113,15 @@ class ReadyPostWorkflowService
             ->where('feature', 'image_generation')
             ->where('is_active', true)
             ->value('model_id');
+    }
+
+    private function defaultSubjectForStyle(string $style): string
+    {
+        if ($style === '3d') {
+            return 'stylized 3D ecommerce migration scene: a private online store dashboard on a laptop, abstract marketplace app tiles moving toward a branded website storefront, product cards, shopping bag, receipt, admin-fee coins, all as clean non-text UI shapes';
+        }
+
+        return 'Indonesian small business owner or admin team using technology in a tidy workspace';
     }
 
     private function mediaResponse(GeneratedMedia $media): array
