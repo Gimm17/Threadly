@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'version' => '2026-05-18-v3',
+    'version' => '2026-05-18-v4',
 
     'brand_profile' => [
         'brand_name' => 'Gimora Digital',

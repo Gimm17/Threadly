@@ -165,10 +165,14 @@ class AiAssistController extends Controller
                 'success' => true,
                 ...$result,
             ]);
-        } catch (\Exception) {
+        } catch (\Exception $e) {
+            report($e);
+
             return response()->json([
                 'success' => false,
-                'message' => 'AI belum bisa membuat paket post siap posting saat ini.',
+                'message' => app()->environment('local')
+                    ? 'AI error: ' . $e->getMessage()
+                    : 'AI belum bisa membuat paket post siap posting saat ini.',
             ], 422);
         }
     }

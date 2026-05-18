@@ -286,6 +286,9 @@ class AIWorkflowService
             - CTA harus natural dan soft, misalnya ajakan simpan, cek proses, atau diskusi.
             - Hashtag maksimal 3 di akhir body, relevan, tanpa #viral/#fyp/#trending.
             - Jangan mengarang data, hasil klien, angka, testimoni, atau klaim performa.
+            - Dilarang menulis angka, persentase, rentang biaya, atau estimasi penghematan kecuali angka itu eksplisit ada di brief.
+            - Jika brief hanya menyebut "mahal", tulis secara kualitatif seperti "biaya admin terasa berat", tanpa angka.
+            - Jangan pakai emoji, simbol checklist, bullet dekoratif, atau karakter hias. Gunakan kalimat pendek yang rapi.
             - Hindari "Bayangkan", "Rahasia", "POV", "Kamu wajib tahu", dan hard selling.
 
             Aturan poster_brief:
@@ -419,14 +422,10 @@ class AIWorkflowService
     private function normalizeReadyPostCopy(array $result): array
     {
         $hook = mb_substr(trim((string) ($result['hook'] ?? $result['opening'] ?? '')), 0, 150);
-        $body = $this->cleanGeneratedText((string) ($result['body'] ?? $result['content'] ?? $result['post'] ?? ''));
+        $body = $this->stripDecorativeSymbols($this->cleanGeneratedText((string) ($result['body'] ?? $result['content'] ?? $result['post'] ?? '')));
         $hashtags = array_values(array_slice(array_filter(array_map([$this, 'normalizeHashtag'], $result['hashtags'] ?? [])), 0, 3));
 
-        if ($body !== '' && ! empty($hashtags)) {
-            $bodyWithoutTags = preg_replace('/\n?\s*(#[\p{L}\p{N}_]+\s*)+$/u', '', $body) ?? $body;
-            $candidate = trim($bodyWithoutTags) . "\n\n" . implode(' ', $hashtags);
-            $body = mb_strlen($candidate) <= 500 ? $candidate : $body;
-        }
+        $body = $this->fitBodyWithHashtags($body, $hashtags, 500);
 
         $hookVariants = is_array($result['hook_variants'] ?? null)
             ? $result['hook_variants']
@@ -458,12 +457,57 @@ class AIWorkflowService
         return [
             'hook' => $hook,
             'hook_variants' => $hookVariants,
-            'body' => mb_substr(trim($body), 0, 500),
+            'body' => $body,
             'hashtags' => $hashtags,
             'headline' => mb_substr(trim((string) ($result['headline'] ?? $hook)), 0, 80),
             'poster_brief' => mb_substr(trim((string) ($result['poster_brief'] ?? $result['image_prompt'] ?? $body)), 0, 1000),
             'quality_notes' => array_values(array_slice((array) ($result['quality_notes'] ?? []), 0, 4)),
         ];
+    }
+
+    private function fitBodyWithHashtags(string $body, array $hashtags, int $maxLength): string
+    {
+        $bodyWithoutTags = trim(preg_replace('/\n?\s*(#[\p{L}\p{N}_]+\s*)+$/u', '', $body) ?? $body);
+
+        if ($hashtags === []) {
+            return $this->trimAtBoundary($bodyWithoutTags, $maxLength);
+        }
+
+        $tagLine = implode(' ', $hashtags);
+        $tagSuffix = "\n\n{$tagLine}";
+        $availableForBody = $maxLength - mb_strlen($tagSuffix);
+
+        if ($availableForBody < 120) {
+            return $this->trimAtBoundary($bodyWithoutTags, $maxLength);
+        }
+
+        return trim($this->trimAtBoundary($bodyWithoutTags, $availableForBody) . $tagSuffix);
+    }
+
+    private function trimAtBoundary(string $text, int $maxLength): string
+    {
+        $text = trim($text);
+
+        if (mb_strlen($text) <= $maxLength) {
+            return $text;
+        }
+
+        $limit = max(1, $maxLength - 3);
+        $trimmed = mb_substr($text, 0, $limit);
+        $lastSpace = mb_strrpos($trimmed, ' ');
+
+        if ($lastSpace !== false && $lastSpace > (int) floor($limit * 0.75)) {
+            $trimmed = mb_substr($trimmed, 0, $lastSpace);
+        }
+
+        return rtrim($trimmed, " \t\n\r\0\x0B.,;:-#/") . '...';
+    }
+
+    private function stripDecorativeSymbols(string $text): string
+    {
+        $cleaned = preg_replace('/[\x{2705}\x{2713}\x{2714}\x{25AA}\x{25CF}\x{2022}\x{1F300}-\x{1FAFF}]/u', '', $text) ?? $text;
+
+        return trim(preg_replace('/^[ \t]*[-*]+[ \t]*/m', '', $cleaned) ?? $cleaned);
     }
 
     private function normalizeIdeas(array $ideas, int $count): array

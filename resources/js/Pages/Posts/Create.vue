@@ -178,6 +178,11 @@ const generateReadyPost = async () => {
             if (data.media?.generation_status === 'completed') {
                 appendGeneratedMediaPreview(data.media);
             }
+
+            if (data.image_error) {
+                mediaError.value = data.image_error;
+                setTimeout(() => mediaError.value = '', 8000);
+            }
         } else {
             aiError.value = data.message || 'Gagal generate post siap posting.';
             setTimeout(() => aiError.value = '', 5000);

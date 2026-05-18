@@ -156,6 +156,7 @@ class AiOptimizationTest extends TestCase
         Storage::fake('public');
 
         $base64 = base64_encode('ready-post-image');
+        $checkSymbol = "\u{2705}";
         Http::fake([
             'https://api.tokenrouter.com/v1/chat/completions' => Http::sequence()
                 ->push([
@@ -166,8 +167,8 @@ class AiOptimizationTest extends TestCase
                                 'hook_variants' => [
                                     ['hook' => 'Admin chat mulai kewalahan?', 'angle' => 'pain point', 'score' => 86],
                                 ],
-                                'body' => "Mulai dari satu alur sederhana: pisahkan chat tanya harga, follow-up, dan komplain.\n\n#UMKM #CustomerService",
-                                'hashtags' => ['#UMKM', '#CustomerService'],
+                                'body' => str_repeat('Mulai dari satu alur sederhana agar admin UMKM lebih rapi. ', 10) . "\n\n{$checkSymbol} Katalog produk rapi\n{$checkSymbol} Chat pelanggan jelas",
+                                'hashtags' => ['#WebsiteUMKM', '#CustomerService', '#DigitalisasiUMKM'],
                                 'headline' => 'Chat Lebih Rapi',
                                 'poster_brief' => 'Professional Indonesian small business admin desk, clean composition, no visible text.',
                                 'quality_notes' => ['Siap dipakai'],
@@ -191,7 +192,7 @@ class AiOptimizationTest extends TestCase
                 ]),
         ]);
 
-        $this->actingAs($this->user)
+        $response = $this->actingAs($this->user)
             ->postJson('/ai/ready-post', [
                 'topic' => 'Buat post edukasi tentang merapikan admin chat UMKM',
                 'pillar' => 'Edukasi AI',
@@ -204,11 +205,54 @@ class AiOptimizationTest extends TestCase
             ->assertJsonPath('media.generation_mode', 'ready-post')
             ->assertJsonPath('media.generation_status', 'completed');
 
+        $body = (string) $response->json('post.body');
+
+        $this->assertLessThanOrEqual(500, mb_strlen($body));
+        $this->assertStringNotContainsString($checkSymbol, $body);
+        $this->assertStringContainsString('#DigitalisasiUMKM', $body);
+
         $media = GeneratedMedia::withoutGlobalScopes()->firstOrFail();
 
         $this->assertSame('Chat Lebih Rapi', $media->overlay_config['headline']);
         $this->assertStringContainsString('no visible text', $media->enhanced_prompt);
         Storage::disk('public')->assertExists($media->file_path);
         Http::assertSentCount(2);
+    }
+
+    public function test_ready_post_keeps_copy_when_image_generation_fails(): void
+    {
+        Http::fake([
+            'https://api.tokenrouter.com/v1/chat/completions' => Http::sequence()
+                ->push([
+                    'choices' => [[
+                        'message' => [
+                            'content' => json_encode([
+                                'hook' => 'Marketplace terasa makin berat?',
+                                'hook_variants' => [],
+                                'body' => 'Website sendiri membantu UMKM mengatur katalog, komunikasi, dan transaksi dengan lebih rapi.',
+                                'hashtags' => ['#WebsiteUMKM'],
+                                'headline' => 'Website Lebih Rapi',
+                                'poster_brief' => 'Clean 3D ecommerce visual, no visible text.',
+                                'quality_notes' => [],
+                            ]),
+                        ],
+                    ]],
+                    'usage' => ['prompt_tokens' => 80, 'completion_tokens' => 80, 'total_tokens' => 160],
+                ])
+                ->push(['error' => ['message' => 'provider timeout']], 504),
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson('/ai/ready-post', [
+                'topic' => 'Migrasi dari marketplace ke website sendiri',
+                'style' => '3d',
+                'aspect_ratio' => '1:1',
+                'generate_image' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('post.hook', 'Marketplace terasa makin berat?')
+            ->assertJsonPath('media', null)
+            ->assertJsonPath('image_error', 'Copy berhasil dibuat, tetapi gambar AI belum selesai dibuat. Coba generate gambar ulang di Image Studio.');
     }
 }

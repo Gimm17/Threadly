@@ -21,6 +21,7 @@ class ReadyPostWorkflowService
     {
         $copy = $this->workflow->generateReadyPostCopy($input, $workspaceId);
         $media = null;
+        $imageError = null;
 
         if ((bool) ($input['generate_image'] ?? true)) {
             $posterInput = [
@@ -37,28 +38,38 @@ class ReadyPostWorkflowService
 
             $promptData = $this->posterPromptBuilder->build($posterInput, $workspaceId);
             $modelUsed = $this->imageModelId($workspaceId);
-            $fileInfo = $this->aiService->generateImage(
-                prompt: $promptData['enhanced_prompt'],
-                style: (string) $posterInput['style'],
-                aspectRatio: (string) $posterInput['aspect_ratio'],
-                quality: (string) $posterInput['quality'],
-                background: (string) $posterInput['background'],
-                workspaceId: $workspaceId,
-            );
 
-            $media = $this->saveGeneratedMedia(
-                workspaceId: $workspaceId,
-                userId: $userId,
-                input: $posterInput,
-                fileInfo: $fileInfo,
-                modelId: $modelUsed,
-                metadata: $promptData,
-            );
+            try {
+                $fileInfo = $this->aiService->generateImage(
+                    prompt: $promptData['enhanced_prompt'],
+                    style: (string) $posterInput['style'],
+                    aspectRatio: (string) $posterInput['aspect_ratio'],
+                    quality: (string) $posterInput['quality'],
+                    background: (string) $posterInput['background'],
+                    workspaceId: $workspaceId,
+                );
+
+                $media = $this->saveGeneratedMedia(
+                    workspaceId: $workspaceId,
+                    userId: $userId,
+                    input: $posterInput,
+                    fileInfo: $fileInfo,
+                    modelId: $modelUsed,
+                    metadata: $promptData,
+                );
+            } catch (\Throwable $e) {
+                report($e);
+
+                $imageError = app()->environment('local')
+                    ? 'Copy berhasil dibuat, tetapi gambar gagal: ' . mb_substr($e->getMessage(), 0, 220)
+                    : 'Copy berhasil dibuat, tetapi gambar AI belum selesai dibuat. Coba generate gambar ulang di Image Studio.';
+            }
         }
 
         return [
             'post' => $copy,
             'media' => $media ? $this->mediaResponse($media) : null,
+            'image_error' => $imageError,
         ];
     }
 
