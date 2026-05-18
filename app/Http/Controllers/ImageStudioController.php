@@ -49,7 +49,7 @@ class ImageStudioController extends Controller
      */
     public function poster(Request $request): JsonResponse
     {
-        set_time_limit(180);
+        $this->extendImageExecutionTime();
 
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:1200'],
@@ -126,7 +126,7 @@ class ImageStudioController extends Controller
      */
     public function generate(Request $request): JsonResponse
     {
-        set_time_limit(180);
+        $this->extendImageExecutionTime();
 
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:1000'],
@@ -174,7 +174,7 @@ class ImageStudioController extends Controller
      */
     public function edit(Request $request): JsonResponse
     {
-        set_time_limit(180);
+        $this->extendImageExecutionTime();
 
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:1000'],
@@ -230,7 +230,7 @@ class ImageStudioController extends Controller
      */
     public function generateFromChat(Request $request): JsonResponse
     {
-        set_time_limit(180);
+        $this->extendImageExecutionTime();
 
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:1000'],
@@ -264,7 +264,7 @@ class ImageStudioController extends Controller
      */
     public function generateFromReference(Request $request): JsonResponse
     {
-        set_time_limit(180);
+        $this->extendImageExecutionTime();
 
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:1000'],
@@ -430,6 +430,19 @@ class ImageStudioController extends Controller
             'error_message' => $media->error_message,
             'created_at' => $media->created_at->diffForHumans(),
         ];
+    }
+
+    private function extendImageExecutionTime(): void
+    {
+        $seconds = max(120, min(930, (int) config('services.tokenrouter.image_timeout', 180) + 30));
+
+        if (function_exists('ini_set')) {
+            @ini_set('max_execution_time', (string) $seconds);
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($seconds);
+        }
     }
 
     public static function availableStyles(): array

@@ -32,6 +32,7 @@ This file lists the code and deployment-sensitive changes required when updating
   - New poster workflow builds a detailed visual prompt with brand/audience/composition/safe-area/negative constraints.
   - Poster metadata is stored with original prompt, enhanced prompt, negative prompt, model params, overlay config, template version, status, estimated cost, and errors.
   - Image endpoint selection follows model capability metadata: image generation, edits, or multimodal chat where appropriate.
+  - Image generation extends PHP request execution time from `TOKENROUTER_IMAGE_TIMEOUT` so slower image models are not killed by the default 30-second PHP limit.
   - Optional cPanel-safe AI image queue is available through `AI_IMAGE_QUEUE_ENABLED=true`.
 - Analytics and hooks:
   - Analytics snapshots now include Threads metrics used by the existing Analytics UI: likes, replies, reposts, quotes, and source.
@@ -120,6 +121,7 @@ CACHE_STORE=database
 TOKENROUTER_API_KEY=...
 TOKENROUTER_BASE_URL=https://api.tokenrouter.com/v1
 TOKENROUTER_VERIFY_SSL=true
+TOKENROUTER_IMAGE_TIMEOUT=240
 
 AI_CACHE_TTL_DAYS=14
 AI_DAILY_COST_LIMIT_USD=0
@@ -133,6 +135,8 @@ THREADS_VERIFY_SSL=true
 ```
 
 Only set `TOKENROUTER_VERIFY_SSL=false` or `THREADS_VERIFY_SSL=false` temporarily if the shared host has a CA certificate problem and external HTTPS requests fail.
+
+For production Flash image models, `TOKENROUTER_IMAGE_TIMEOUT=240` is usually enough. For temporary Pro image model tests, raise it to `720`, then run `php artisan optimize:clear && php artisan optimize`.
 
 ## Migration Notes
 

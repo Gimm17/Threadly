@@ -35,6 +35,20 @@ class AIService
         return max(60, min(900, (int) config('services.tokenrouter.image_timeout', 180)));
     }
 
+    private function extendImageExecutionTime(): void
+    {
+        // Image models can run longer than PHP's default 30 second request limit.
+        $seconds = $this->imageTimeout() + 30;
+
+        if (function_exists('ini_set')) {
+            @ini_set('max_execution_time', (string) $seconds);
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($seconds);
+        }
+    }
+
     /**
      * Send a completion request to TokenRouter (OpenAI-compatible).
      *
@@ -179,6 +193,7 @@ class AIService
         $startTime = microtime(true);
         $endpointType = $this->resolveImageEndpoint($modelId);
 
+        $this->extendImageExecutionTime();
         $this->guardImageBudget($wsId, $modelId);
 
         $userContent = str_contains($prompt, 'Create a premium social media poster')
@@ -280,6 +295,8 @@ class AIService
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
 
+        $this->extendImageExecutionTime();
+
         try {
             $imagePaths = is_array($imagePaths) ? array_values($imagePaths) : [$imagePaths];
 
@@ -369,6 +386,7 @@ class AIService
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
 
+        $this->extendImageExecutionTime();
         $this->guardImageBudget($wsId, $modelId);
 
         $userContent = str_contains($prompt, 'Create a premium social media poster')
@@ -444,6 +462,7 @@ class AIService
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
 
+        $this->extendImageExecutionTime();
         $this->guardImageBudget($wsId, $modelId);
 
         $size = app(ModelCatalogService::class)->sizeForAspectRatio($aspectRatio);
