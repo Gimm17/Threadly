@@ -1,0 +1,17 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+    <title id="title">ThreadsAI mark</title>
+    <desc id="desc">ThreadsAI brand mark with connected conversation thread and AI sparkle.</desc>
+    <rect x="10" y="10" width="108" height="108" rx="28" fill="url(#bg)" />
+    <path d="M35 41C35 33.82 40.82 28 48 28H79C86.18 28 92 33.82 92 41V59C92 66.18 86.18 72 79 72H66.5L50.5 84V72H48C40.82 72 35 66.18 35 59V41Z" fill="#FFF7E8" />
+    <path d="M48 47H79M48 58H69" stroke="#1A3263" stroke-width="7" stroke-linecap="round" />
+    <path d="M40 89C48 99 61 104 75 99C88 94.36 95 84.5 95 71" stroke="#FFC570" stroke-width="9" stroke-linecap="round" />
+    <path d="M88 28L92 38L102 42L92 46L88 56L84 46L74 42L84 38L88 28Z" fill="#5EEAD4" />
+    <path d="M36 76L38.6 82.4L45 85L38.6 87.6L36 94L33.4 87.6L27 85L33.4 82.4L36 76Z" fill="#FFC570" />
+    <defs>
+        <linearGradient id="bg" x1="21" y1="17" x2="115" y2="118" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#243F78" />
+            <stop offset="0.55" stop-color="#1A3263" />
+            <stop offset="1" stop-color="#10264D" />
+        </linearGradient>
+    </defs>
+</svg>

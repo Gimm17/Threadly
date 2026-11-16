@@ -9,6 +9,7 @@ use App\Models\AiUsageLog;
 use App\Services\AI\AIBudgetGuard;
 use App\Services\AI\CostEstimator;
 use App\Services\AI\ModelCatalogService;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -28,6 +29,24 @@ class AIService
     private function verifySsl(): bool
     {
         return filter_var(config('services.tokenrouter.verify_ssl', true), FILTER_VALIDATE_BOOL);
+    }
+
+    private function textTimeout(): int
+    {
+        return max(30, min(120, (int) config('services.tokenrouter.text_timeout', 60)));
+    }
+
+    private function extendTextExecutionTime(): void
+    {
+        $seconds = $this->textTimeout() + 30;
+
+        if (function_exists('ini_set')) {
+            @ini_set('max_execution_time', (string) $seconds);
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($seconds);
+        }
     }
 
     private function imageTimeout(): int
@@ -66,6 +85,8 @@ class AIService
             throw new RuntimeException('TokenRouter API key is not configured.');
         }
 
+        $this->extendTextExecutionTime();
+
         $config = $this->getConfig($feature, $workspaceId);
         $wsId = $workspaceId ?? auth()->user()?->workspace_id;
         $startTime = microtime(true);
@@ -100,17 +121,16 @@ class AIService
         try {
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
-                ->timeout(90)
-                ->retry(2, 2000)
+                ->timeout($this->textTimeout())
+                ->retry(2, 2000, fn ($e) => $this->shouldRetryProviderRequest($e))
                 ->post($this->baseUrl . '/chat/completions', $payload);
 
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             if ($response->failed()) {
-                $this->logUsage($wsId, $feature, $config->model_id, 0, 0, 0, $elapsedMs, false, "HTTP {$response->status()}");
-                throw new RuntimeException(
-                    "AI API error [{$response->status()}]: " . $response->body()
-                );
+                $message = $this->providerErrorMessage('AI API error', $response->status(), $response->body());
+                $this->logUsage($wsId, $feature, $config->model_id, 0, 0, 0, $elapsedMs, false, $message);
+                throw new RuntimeException($message);
             }
 
             $data = $response->json();
@@ -125,10 +145,16 @@ class AIService
             return $content;
         } catch (RuntimeException $e) {
             throw $e;
+        } catch (RequestException $e) {
+            $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
+            $message = $this->providerRequestExceptionMessage('AI API error', $e);
+            $this->logUsage($wsId, $feature, $config->model_id, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException($message);
         } catch (\Exception $e) {
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
-            $this->logUsage($wsId, $feature, $config->model_id, 0, 0, 0, $elapsedMs, false, $e->getMessage());
-            throw new RuntimeException('AI request failed: ' . $e->getMessage());
+            $message = $this->sanitizeAiError($e->getMessage());
+            $this->logUsage($wsId, $feature, $config->model_id, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException('AI request failed: ' . $message);
         }
     }
 
@@ -214,6 +240,7 @@ class AIService
                         ],
                     ],
                     'modalities' => ['text', 'image'],
+                    'size' => $size,
                     'max_tokens' => min($config->max_tokens, 4096),
                 ];
 
@@ -222,7 +249,7 @@ class AIService
                 $response = Http::withToken($this->apiKey)
                     ->withOptions(['verify' => $this->verifySsl()])
                     ->timeout($this->imageTimeout())
-                    ->retry(2, 5000)
+                    ->retry(2, 5000, fn ($e) => $this->shouldRetryProviderRequest($e))
                     ->post($this->baseUrl . '/chat/completions', $payload);
             } else {
                 // OpenAI / ByteDance / default path: /v1/images/generations
@@ -243,17 +270,16 @@ class AIService
                 $response = Http::withToken($this->apiKey)
                     ->withOptions(['verify' => $this->verifySsl()])
                     ->timeout($this->imageTimeout())
-                    ->retry(2, 3000)
+                    ->retry(2, 3000, fn ($e) => $this->shouldRetryProviderRequest($e))
                     ->post($this->baseUrl . '/images/generations', $payload);
             }
 
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             if ($response->failed()) {
-                $this->logUsage($wsId, 'image_generation', $modelId, 0, 0, 0, $elapsedMs, false, "HTTP {$response->status()}");
-                throw new RuntimeException(
-                    "AI Image API error [{$response->status()}]: " . $response->body()
-                );
+                $message = $this->providerErrorMessage('AI Image API error', $response->status(), $response->body());
+                $this->logUsage($wsId, 'image_generation', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+                throw new RuntimeException($message);
             }
 
             $data = $response->json();
@@ -264,10 +290,16 @@ class AIService
             return $this->extractAndSaveImage($data, $wsId);
         } catch (RuntimeException $e) {
             throw $e;
+        } catch (RequestException $e) {
+            $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
+            $message = $this->providerRequestExceptionMessage('AI Image API error', $e);
+            $this->logUsage($wsId, 'image_generation', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException($message);
         } catch (\Exception $e) {
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
-            $this->logUsage($wsId, 'image_generation', $modelId, 0, 0, 0, $elapsedMs, false, $e->getMessage());
-            throw new RuntimeException('AI image request failed: ' . $e->getMessage());
+            $message = $this->sanitizeAiError($e->getMessage());
+            $this->logUsage($wsId, 'image_generation', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException('AI image request failed: ' . $message);
         }
     }
 
@@ -342,10 +374,9 @@ class AIService
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             if ($response->failed()) {
-                $this->logUsage($wsId, 'image_edit', $config->model_id, 0, 0, 0, $elapsedMs, false, "HTTP {$response->status()}");
-                throw new RuntimeException(
-                    "AI Image Edit API error [{$response->status()}]: " . $response->body()
-                );
+                $message = $this->providerErrorMessage('AI Image Edit API error', $response->status(), $response->body());
+                $this->logUsage($wsId, 'image_edit', $config->model_id, 0, 0, 0, $elapsedMs, false, $message);
+                throw new RuntimeException($message);
             }
 
             $data = $response->json();
@@ -356,10 +387,16 @@ class AIService
             return $this->extractAndSaveImage($data, $wsId);
         } catch (RuntimeException $e) {
             throw $e;
+        } catch (RequestException $e) {
+            $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
+            $message = $this->providerRequestExceptionMessage('AI Image Edit API error', $e);
+            $this->logUsage($wsId, 'image_edit', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException($message);
         } catch (\Exception $e) {
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
-            $this->logUsage($wsId, 'image_edit', $config->model_id, 0, 0, 0, $elapsedMs, false, $e->getMessage());
-            throw new RuntimeException('AI image edit failed: ' . $e->getMessage());
+            $message = $this->sanitizeAiError($e->getMessage());
+            $this->logUsage($wsId, 'image_edit', $config->model_id, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException('AI image edit failed: ' . $message);
         }
     }
 
@@ -411,16 +448,15 @@ class AIService
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout($this->imageTimeout())
-                ->retry(2, 3000)
+                ->retry(2, 3000, fn ($e) => $this->shouldRetryProviderRequest($e))
                 ->post($this->baseUrl . '/chat/completions', $payload);
 
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             if ($response->failed()) {
-                $this->logUsage($wsId, 'image_chat', $modelId, 0, 0, 0, $elapsedMs, false, "HTTP {$response->status()}");
-                throw new RuntimeException(
-                    "AI Chat Image API error [{$response->status()}]: " . $response->body()
-                );
+                $message = $this->providerErrorMessage('AI Chat Image API error', $response->status(), $response->body());
+                $this->logUsage($wsId, 'image_chat', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+                throw new RuntimeException($message);
             }
 
             $data = $response->json();
@@ -431,10 +467,16 @@ class AIService
             return $this->extractAndSaveImage($data, $wsId);
         } catch (RuntimeException $e) {
             throw $e;
+        } catch (RequestException $e) {
+            $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
+            $message = $this->providerRequestExceptionMessage('AI Chat Image API error', $e);
+            $this->logUsage($wsId, 'image_chat', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException($message);
         } catch (\Exception $e) {
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
-            $this->logUsage($wsId, 'image_chat', $modelId, 0, 0, 0, $elapsedMs, false, $e->getMessage());
-            throw new RuntimeException('AI chat image generation failed: ' . $e->getMessage());
+            $message = $this->sanitizeAiError($e->getMessage());
+            $this->logUsage($wsId, 'image_chat', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException('AI chat image generation failed: ' . $message);
         }
     }
 
@@ -492,16 +534,15 @@ class AIService
             $response = Http::withToken($this->apiKey)
                 ->withOptions(['verify' => $this->verifySsl()])
                 ->timeout($this->imageTimeout())
-                ->retry(2, 3000)
+                ->retry(2, 3000, fn ($e) => $this->shouldRetryProviderRequest($e))
                 ->post($this->baseUrl . '/chat/completions', $payload);
 
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
 
             if ($response->failed()) {
-                $this->logUsage($wsId, 'image_reference', $modelId, 0, 0, 0, $elapsedMs, false, "HTTP {$response->status()}");
-                throw new RuntimeException(
-                    "AI Reference Image API error [{$response->status()}]: " . $response->body()
-                );
+                $message = $this->providerErrorMessage('AI Reference Image API error', $response->status(), $response->body());
+                $this->logUsage($wsId, 'image_reference', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+                throw new RuntimeException($message);
             }
 
             $data = $response->json();
@@ -512,10 +553,16 @@ class AIService
             return $this->extractAndSaveImage($data, $wsId);
         } catch (RuntimeException $e) {
             throw $e;
+        } catch (RequestException $e) {
+            $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
+            $message = $this->providerRequestExceptionMessage('AI Reference Image API error', $e);
+            $this->logUsage($wsId, 'image_reference', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException($message);
         } catch (\Exception $e) {
             $elapsedMs = (int) ((microtime(true) - $startTime) * 1000);
-            $this->logUsage($wsId, 'image_reference', $modelId, 0, 0, 0, $elapsedMs, false, $e->getMessage());
-            throw new RuntimeException('AI reference image generation failed: ' . $e->getMessage());
+            $message = $this->sanitizeAiError($e->getMessage());
+            $this->logUsage($wsId, 'image_reference', $modelId, 0, 0, 0, $elapsedMs, false, $message);
+            throw new RuntimeException('AI reference image generation failed: ' . $message);
         }
     }
 
@@ -559,6 +606,24 @@ class AIService
                             if ($base64) break;
                         }
                     }
+
+                    if (($part['type'] ?? '') === 'inline_data' || isset($part['inline_data'])) {
+                        $inline = $part['inline_data'] ?? $part;
+                        $inlineData = $inline['data'] ?? null;
+                        if ($inlineData) {
+                            $mime = $inline['mime_type'] ?? $inline['mimeType'] ?? $mime;
+                            $base64 = str_contains((string) $inlineData, 'base64,')
+                                ? $this->downloadImageAsBase64((string) $inlineData, $mime)
+                                : (string) $inlineData;
+                            if ($base64) break;
+                        }
+                    }
+
+                    if (($part['type'] ?? '') === 'image' && isset($part['data'])) {
+                        $mime = $part['mime_type'] ?? $part['mimeType'] ?? $mime;
+                        $base64 = (string) $part['data'];
+                        if ($base64) break;
+                    }
                 }
             }
 
@@ -567,9 +632,16 @@ class AIService
                 $images = data_get($data, 'choices.0.message.images');
                 if (is_array($images)) {
                     foreach ($images as $img) {
-                        $imgUrl = $img['image_url']['url'] ?? null;
+                        $imgUrl = $img['image_url']['url'] ?? $img['url'] ?? null;
                         if ($imgUrl) {
                             $base64 = $this->downloadImageAsBase64($imgUrl, $mime);
+                            if ($base64) break;
+                        }
+
+                        $inlineData = $img['data'] ?? $img['b64_json'] ?? null;
+                        if ($inlineData) {
+                            $mime = $img['mime_type'] ?? $img['mimeType'] ?? $mime;
+                            $base64 = (string) $inlineData;
                             if ($base64) break;
                         }
                     }
@@ -631,6 +703,49 @@ class AIService
         }
 
         return null;
+    }
+
+    private function providerRequestExceptionMessage(string $label, RequestException $e): string
+    {
+        if ($e->response) {
+            return $this->providerErrorMessage($label, $e->response->status(), $e->response->body());
+        }
+
+        return "{$label}: " . $this->sanitizeAiError($e->getMessage());
+    }
+
+    private function shouldRetryProviderRequest(\Throwable $e): bool
+    {
+        if ($e instanceof RequestException && $e->response) {
+            return $e->response->serverError() || $e->response->status() === 429;
+        }
+
+        return true;
+    }
+
+    private function providerErrorMessage(string $label, int $status, string $body): string
+    {
+        if ($status === 401) {
+            return "{$label} [401]: API key tidak valid untuk provider/base URL yang dipakai. Cek TOKENROUTER_API_KEY dan TOKENROUTER_BASE_URL, lalu restart server Laravel.";
+        }
+
+        if ($status === 403) {
+            return "{$label} [403]: API key tidak punya akses ke model yang dipilih. Cek model AI image di Settings atau permission provider.";
+        }
+
+        if ($status === 404) {
+            return "{$label} [404]: model image tidak tersedia di provider/base URL yang dipakai. Pilih model image lain di Settings, misalnya Gemini Flash Image atau Seedream, lalu jalankan ulang queue.";
+        }
+
+        return "{$label} [{$status}]: " . mb_substr($this->sanitizeAiError($body), 0, 500);
+    }
+
+    private function sanitizeAiError(string $message): string
+    {
+        $message = preg_replace('/sk-[A-Za-z0-9_\\-]{8,}/', 'sk-...[redacted]', $message) ?? $message;
+        $message = preg_replace('/Bearer\\s+[A-Za-z0-9_\\.\\-]+/i', 'Bearer [redacted]', $message) ?? $message;
+
+        return mb_substr($message, 0, 700);
     }
 
     /**

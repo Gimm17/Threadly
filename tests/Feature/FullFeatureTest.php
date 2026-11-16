@@ -7,6 +7,7 @@ use App\Models\AnalyticsSnapshot;
 use App\Models\ContentIdea;
 use App\Models\ContentPillar;
 use App\Models\GeneratedMedia;
+use App\Models\GeneratedPost;
 use App\Models\HookTemplate;
 use App\Models\Notification;
 use App\Models\Post;
@@ -18,6 +19,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class FullFeatureTest extends TestCase
@@ -61,11 +63,11 @@ class FullFeatureTest extends TestCase
     {
         $pages = [
             '/dashboard' => 'Dashboard/Index',
-            '/content-planner' => 'ContentPlanner/Index',
-            '/posts' => 'Posts/Index',
-            '/posts/create' => 'Posts/Create',
+            '/kalender-konten' => 'ContentPlanner/Index',
+            '/draft-jadwal' => 'Posts/Index',
+            '/buat-konten' => 'Posts/Create',
+            '/library' => 'Library/Index',
             '/analytics' => 'Analytics/Index',
-            '/hooks' => 'Hooks/Index',
             '/settings/general' => 'Settings/General',
             '/settings/ai-models' => 'Settings/AiModels',
         ];
@@ -76,12 +78,96 @@ class FullFeatureTest extends TestCase
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page->component($component));
         }
+
+        $redirects = [
+            '/content-planner' => '/kalender-konten',
+            '/posts' => '/draft-jadwal',
+            '/posts/create' => '/buat-konten',
+            '/hooks' => '/library?tab=hooks',
+            '/image-studio' => '/library?tab=media',
+            '/copywriting' => '/buat-konten',
+        ];
+
+        foreach ($redirects as $url => $target) {
+            $this->actingAs($this->user)
+                ->get($url)
+                ->assertRedirect($target);
+        }
     }
 
     public function test_public_registration_is_disabled(): void
     {
         $this->get('/register')->assertNotFound();
         $this->post('/register', [])->assertNotFound();
+    }
+
+    public function test_ai_usage_dashboard_counts_current_workspace_day(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-05-23 00:30:00', 'UTC'));
+
+        try {
+            DB::table('ai_usage_logs')->insert([
+                [
+                    'workspace_id' => $this->workspace->id,
+                    'user_id' => $this->user->id,
+                    'feature' => 'copywriting',
+                    'model_id' => 'claude-sonnet-4.5',
+                    'provider' => 'tokenrouter',
+                    'prompt_tokens' => 100,
+                    'completion_tokens' => 80,
+                    'total_tokens' => 180,
+                    'cost' => 0.0123,
+                    'response_time_ms' => 1200,
+                    'is_success' => true,
+                    'created_at' => '2026-05-22 23:18:00',
+                    'updated_at' => '2026-05-22 23:18:00',
+                ],
+                [
+                    'workspace_id' => $this->workspace->id,
+                    'user_id' => $this->user->id,
+                    'feature' => 'image_generation',
+                    'model_id' => 'gpt-5-image',
+                    'provider' => 'tokenrouter',
+                    'prompt_tokens' => 0,
+                    'completion_tokens' => 0,
+                    'total_tokens' => 0,
+                    'cost' => 0.0400,
+                    'response_time_ms' => 1800,
+                    'is_success' => false,
+                    'created_at' => '2026-05-22 23:20:00',
+                    'updated_at' => '2026-05-22 23:20:00',
+                ],
+                [
+                    'workspace_id' => $this->workspace->id,
+                    'user_id' => $this->user->id,
+                    'feature' => 'copywriting',
+                    'model_id' => 'claude-sonnet-4.5',
+                    'provider' => 'tokenrouter',
+                    'prompt_tokens' => 50,
+                    'completion_tokens' => 50,
+                    'total_tokens' => 100,
+                    'cost' => 0.0100,
+                    'response_time_ms' => 900,
+                    'is_success' => true,
+                    'created_at' => '2026-05-22 12:00:00',
+                    'updated_at' => '2026-05-22 12:00:00',
+                ],
+            ]);
+
+            $this->actingAs($this->user)
+                ->get('/settings/ai-models')
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->component('Settings/AiModels')
+                    ->where('usageStats.total_requests_today', 2)
+                    ->where('usageStats.total_tokens_today', 180)
+                    ->where('usageStats.total_cost_today', 0.0523)
+                    ->where('usageStats.success_rate_today', 50)
+                    ->where('usageStats.timezone', 'Asia/Makassar')
+                );
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_profile_page_is_available(): void
@@ -115,6 +201,45 @@ class FullFeatureTest extends TestCase
         $this->assertSame($this->workspace->id, $post->workspace_id);
         $this->assertSame($post->id, $media->post_id);
         Storage::disk('public')->assertExists($media->file_path);
+    }
+
+    public function test_post_detail_page_shows_post_structure_and_media(): void
+    {
+        $post = Post::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'content_pillar_id' => $this->pillar->id,
+            'body' => "Landing page membantu calon pelanggan paham layanan.\n\n#WebsiteUMKM #SEO",
+            'hook' => 'Landing page bukan cuma soal tampilan.',
+            'status' => 'scheduled',
+            'scheduled_at' => now()->addDay(),
+            'publish_mode' => 'manual',
+            'created_by' => $this->user->id,
+        ]);
+
+        PostMedia::create([
+            'post_id' => $post->id,
+            'file_path' => "workspaces/{$this->workspace->id}/posts/{$post->id}/poster.png",
+            'file_name' => 'poster.png',
+            'mime_type' => 'image/png',
+            'file_size' => 2048,
+            'type' => 'image',
+            'sort_order' => 0,
+            'is_ai_generated' => true,
+            'ai_prompt' => 'Premium landing page poster background.',
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('posts.show', $post))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Posts/Show')
+                ->where('post.id', $post->id)
+                ->where('post.hook', 'Landing page bukan cuma soal tampilan.')
+                ->where('post.status', 'scheduled')
+                ->where('post.pillar.name', 'Edukasi AI')
+                ->where('post.media.0.file_name', 'poster.png')
+                ->where('post.media.0.is_ai_generated', true)
+            );
     }
 
     public function test_post_can_be_created_with_generated_ai_media(): void
@@ -246,6 +371,122 @@ class FullFeatureTest extends TestCase
         $this->actingAs($this->user)
             ->post(route('posts.publish-threads', $post))
             ->assertSessionHas('error');
+    }
+
+    public function test_generated_post_can_be_saved_as_draft(): void
+    {
+        $generated = GeneratedPost::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'created_by' => $this->user->id,
+            'source' => 'ready_post',
+            'prompt' => 'Buat post edukasi AI untuk UMKM',
+            'hook' => 'AI bukan cuma tren.',
+            'body' => 'Konten awal dari AI.',
+            'hashtags' => ['#AI', '#UMKM'],
+            'status' => 'generated',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson(route('generated-posts.save-draft', $generated), [
+                'hook' => 'Hook sudah diedit.',
+                'body' => 'Body hasil edit di editor.',
+                'content_pillar_id' => $this->pillar->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('generated_post.status', 'drafted')
+            ->assertJsonPath('post.status', 'draft');
+
+        $this->assertDatabaseHas('posts', [
+            'workspace_id' => $this->workspace->id,
+            'content_pillar_id' => $this->pillar->id,
+            'hook' => 'Hook sudah diedit.',
+            'body' => 'Body hasil edit di editor.',
+            'status' => 'draft',
+            'publish_mode' => 'manual',
+        ]);
+
+        $this->assertSame('drafted', $generated->fresh()->status);
+    }
+
+    public function test_generated_post_can_be_scheduled(): void
+    {
+        Queue::fake();
+
+        $generated = GeneratedPost::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'created_by' => $this->user->id,
+            'source' => 'ready_post',
+            'prompt' => 'Buat post jadwal AI untuk UMKM',
+            'hook' => 'Jadwal konten bisa rapi.',
+            'body' => 'Konten scheduled dari AI.',
+            'status' => 'generated',
+        ]);
+
+        $scheduledAt = now()->addHours(2)->format('Y-m-d H:i:s');
+
+        $this->actingAs($this->user)
+            ->postJson(route('generated-posts.schedule', $generated), [
+                'scheduled_at' => $scheduledAt,
+                'publish_mode' => 'manual',
+            ])
+            ->assertOk()
+            ->assertJsonPath('generated_post.status', 'scheduled')
+            ->assertJsonPath('post.status', 'scheduled');
+
+        $this->assertDatabaseHas('posts', [
+            'workspace_id' => $this->workspace->id,
+            'body' => 'Konten scheduled dari AI.',
+            'status' => 'scheduled',
+            'publish_mode' => 'manual',
+        ]);
+
+        Queue::assertPushed(SendPostReminderJob::class);
+    }
+
+    public function test_generated_post_publish_now_requires_threads_token(): void
+    {
+        $generated = GeneratedPost::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'created_by' => $this->user->id,
+            'source' => 'ready_post',
+            'prompt' => 'Publish langsung ke Threads',
+            'hook' => 'Publish cepat.',
+            'body' => 'Konten publish now.',
+            'status' => 'generated',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson(route('generated-posts.publish-now', $generated))
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonFragment(['message' => 'Threads API belum dikonfigurasi. Simpan sebagai Draft atau atur token di Settings terlebih dahulu.']);
+
+        $this->assertDatabaseMissing('posts', [
+            'workspace_id' => $this->workspace->id,
+            'body' => 'Konten publish now.',
+        ]);
+    }
+
+    public function test_generated_post_from_another_workspace_cannot_be_accessed(): void
+    {
+        $otherWorkspace = Workspace::create([
+            'name' => 'Workspace Lain',
+            'timezone' => 'Asia/Makassar',
+            'plan' => 'free',
+            'settings' => [],
+        ]);
+
+        $generated = GeneratedPost::withoutGlobalScopes()->create([
+            'workspace_id' => $otherWorkspace->id,
+            'source' => 'ready_post',
+            'prompt' => 'Konten workspace lain',
+            'body' => 'Tidak boleh diakses.',
+            'status' => 'generated',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson(route('generated-posts.save-draft', $generated))
+            ->assertNotFound();
     }
 
     public function test_analytics_snapshot_store_supports_threads_metrics(): void

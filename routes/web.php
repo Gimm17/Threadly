@@ -10,6 +10,8 @@ use App\Http\Controllers\{
     AiAssistController,
     AnalyticsController,
     HookTemplateController,
+    LibraryController,
+    GeneratedPostController,
     NotificationController,
     ImageStudioController,
     CopywritingController,
@@ -31,11 +33,14 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
         Route::get('/dashboard', [DashboardController::class, 'index'])
             ->name('dashboard');
 
-        // Content Planner
-        Route::get('/content-planner', [ContentPlannerController::class, 'index'])
+        // Kalender Konten
+        Route::redirect('/content-planner', '/kalender-konten');
+        Route::get('/kalender-konten', [ContentPlannerController::class, 'index'])
             ->name('content-planner');
         Route::get('/content-planner/calendar-data', [ContentPlannerController::class, 'calendarData'])
             ->name('content-planner.calendar');
+        Route::get('/kalender-konten/calendar-data', [ContentPlannerController::class, 'calendarData'])
+            ->name('content-planner.calendar-new');
 
         // Content Pillars
         Route::resource('content-pillars', ContentPillarController::class)
@@ -47,22 +52,37 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
         Route::post('content-ideas/{contentIdea}/to-post', [ContentIdeaController::class, 'convertToPost'])
             ->name('content-ideas.to-post');
 
-        // Posts
-        Route::resource('posts', PostController::class);
+        // Buat Konten + Draft & Jadwal
+        Route::redirect('/posts', '/draft-jadwal');
+        Route::get('/draft-jadwal', [PostController::class, 'index'])
+            ->name('posts.index');
+        Route::get('/buat-konten', [PostController::class, 'create'])
+            ->name('posts.create');
+        Route::redirect('/posts/create', '/buat-konten');
+        Route::resource('posts', PostController::class)
+            ->except(['index', 'create']);
         Route::post('posts/{post}/publish', [PostController::class, 'markPublished'])
             ->name('posts.publish');
         Route::post('posts/{post}/cancel', [PostController::class, 'cancel'])
             ->name('posts.cancel');
         Route::post('posts/{post}/publish-threads', [PostController::class, 'publishToThreads'])
             ->name('posts.publish-threads');
+        Route::prefix('generated-posts')->name('generated-posts.')->group(function () {
+            Route::post('{generatedPost}/save-draft', [GeneratedPostController::class, 'saveDraft'])->name('save-draft');
+            Route::post('{generatedPost}/schedule', [GeneratedPostController::class, 'schedule'])->name('schedule');
+            Route::post('{generatedPost}/publish-now', [GeneratedPostController::class, 'publishNow'])->name('publish-now');
+        });
 
         // Analytics
         Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics');
         Route::post('/analytics/snapshot', [AnalyticsController::class, 'storeSnapshot'])->name('analytics.snapshot');
         Route::post('/analytics/sync', [AnalyticsController::class, 'syncFromApi'])->name('analytics.sync');
 
+        // Library
+        Route::get('/library', [LibraryController::class, 'index'])->name('library.index');
+
         // Hook Templates
-        Route::get('/hooks', [HookTemplateController::class, 'index'])->name('hooks.index');
+        Route::redirect('/hooks', '/library?tab=hooks')->name('hooks.index');
         Route::post('/hooks', [HookTemplateController::class, 'store'])->name('hooks.store');
         Route::delete('/hooks/{hookTemplate}', [HookTemplateController::class, 'destroy'])->name('hooks.destroy');
         Route::post('/hooks/{hookTemplate}/save', [HookTemplateController::class, 'save'])->name('hooks.save');
@@ -88,7 +108,7 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
 
         // Image Studio
         Route::prefix('image-studio')->name('image-studio.')->group(function () {
-            Route::get('/', [ImageStudioController::class, 'index'])->name('index');
+            Route::redirect('/', '/library?tab=media')->name('index');
             Route::post('/poster', [ImageStudioController::class, 'poster'])->name('poster');
             Route::get('/jobs/{media}', [ImageStudioController::class, 'jobStatus'])->name('jobs.show');
             Route::post('/generate', [ImageStudioController::class, 'generate'])->name('generate');
@@ -101,7 +121,7 @@ Route::middleware(['auth', 'verified', EnsureWorkspaceAccess::class])
 
         // Copywriting AI
         Route::prefix('copywriting')->name('copywriting.')->group(function () {
-            Route::get('/', [CopywritingController::class, 'index'])->name('index');
+            Route::redirect('/', '/buat-konten')->name('index');
             Route::post('/generate-post', [CopywritingController::class, 'generatePost'])->name('generate-post');
             Route::post('/generate-thread', [CopywritingController::class, 'generateThread'])->name('generate-thread');
             Route::post('/generate-variations', [CopywritingController::class, 'generateVariations'])->name('generate-variations');

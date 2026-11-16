@@ -1,6 +1,19 @@
-# Threadly
+<div align="center">
 
-Threadly is a private Laravel + Vue/Inertia application for planning, writing, scheduling, and analyzing Threads content for Gimora Digital.
+# 🧵 Threadly
+
+### AI-Powered Threads Content Planning, Copywriting, Image Studio & Scheduling App
+
+[![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com/)
+[![Vue](https://img.shields.io/badge/Vue-3%20%2B%20Inertia.js%20v2-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![AI](https://img.shields.io/badge/AI-TokenRouter%20API-6366F1?style=for-the-badge)](config/ai-models.php)
+
+*Built for **Gimora Digital** — plan, write, generate poster visuals, schedule, and analyze Threads content with cPanel shared-hosting compatibility.*
+
+</div>
+
+---
 
 ## Stack
 

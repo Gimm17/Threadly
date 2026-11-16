@@ -29,3 +29,9 @@ deploy_guide.md
 DEPLOY_PLAN.md
 IMPLEMENTATION_PLAN.md
 test.txt
+
+.env.*
+!.env.example
+*.sqlite*
+database/database.sqlite
+claude --resume *.txt

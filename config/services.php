@@ -44,7 +44,10 @@ return [
         'key' => env('TOKENROUTER_API_KEY'),
         'base_url' => env('TOKENROUTER_BASE_URL', 'https://api.tokenrouter.com/v1'),
         'verify_ssl' => env('TOKENROUTER_VERIFY_SSL', true),
+        'text_timeout' => env('TOKENROUTER_TEXT_TIMEOUT', 60),
         'image_timeout' => env('TOKENROUTER_IMAGE_TIMEOUT', 180),
+        'fallback_image_model' => env('TOKENROUTER_FALLBACK_IMAGE_MODEL', 'google/gemini-3.1-flash-image-preview'),
+        'ready_post_image_prompt_ai' => env('TOKENROUTER_READY_POST_IMAGE_PROMPT_AI', false),
     ],
 
     /*

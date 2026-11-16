@@ -6,14 +6,14 @@ import {
     IconCalendarEvent,
     IconClock,
     IconSparkles,
-    IconFileText,
-    IconPhoto,
+    IconBooks,
     IconChartLine,
     IconSettings,
     IconUser,
     IconMenu2,
     IconX,
 } from '@tabler/icons-vue';
+import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import NotificationBell from '@/Components/NotificationBell.vue';
 
 const page = usePage();
@@ -23,19 +23,18 @@ const isMobileOpen = ref(false);
 const toggleMobile = () => { isMobileOpen.value = !isMobileOpen.value; };
 
 const navItems = [
-    { name: 'Dashboard', route: 'dashboard', icon: IconLayoutDashboard },
-    { name: 'Content Planner', route: 'content-planner', icon: IconCalendarEvent },
-    { name: 'Post Scheduler', route: 'posts.index', icon: IconClock },
-    { name: 'Hook Generator', route: 'hooks.index', icon: IconSparkles },
-    { name: 'Copywriting AI', route: 'copywriting.index', icon: IconFileText },
-    { name: 'Image Studio', route: 'image-studio.index', icon: IconPhoto },
-    { name: 'Analytics', route: 'analytics', icon: IconChartLine },
-    { name: 'Settings', route: 'settings.general', icon: IconSettings },
+    { name: 'Dashboard', route: 'dashboard', icon: IconLayoutDashboard, active: ['dashboard'] },
+    { name: 'Buat Konten', route: 'posts.create', icon: IconSparkles, active: ['posts.create'] },
+    { name: 'Kalender Konten', route: 'content-planner', icon: IconCalendarEvent, active: ['content-planner', 'content-planner.calendar', 'content-planner.calendar-new'] },
+    { name: 'Draft & Jadwal', route: 'posts.index', icon: IconClock, active: ['posts.index', 'posts.edit', 'posts.show'] },
+    { name: 'Library', route: 'library.index', icon: IconBooks, active: ['library.index', 'hooks.index', 'image-studio.index'] },
+    { name: 'Analytics', route: 'analytics', icon: IconChartLine, active: ['analytics'] },
+    { name: 'Settings', route: 'settings.general', icon: IconSettings, active: ['settings.general', 'settings.ai-models'] },
 ];
 
 const isActive = (item) => {
-    if (!item.route) return false;
-    return currentRoute.value?.startsWith(item.route.split('.')[0]);
+    if (!item.route || !currentRoute.value) return false;
+    return (item.active || [item.route]).some((name) => currentRoute.value === name);
 };
 
 const flash = computed(() => page.props.flash || {});
@@ -60,8 +59,10 @@ const flash = computed(() => page.props.flash || {});
         >
             <!-- Brand -->
             <div class="px-6 mb-8">
-                <h1 class="text-xl font-bold text-[#ffc570]">ThreadsAI</h1>
-                <p class="text-xs text-[#94a3b8] mt-0.5">by Gimora Digital</p>
+                <Link :href="route('dashboard')" class="block group">
+                    <ApplicationLogo class="h-12 w-auto text-white transition-opacity group-hover:opacity-90" />
+                    <p class="text-xs text-[#94a3b8] mt-2">by Gimora Digital</p>
+                </Link>
             </div>
 
             <!-- Navigation -->

@@ -307,6 +307,78 @@ class AIWorkflowService
         }, (bool) ($workflow['cache'] ?? true));
     }
 
+    public function generateReadyPostImagePrompt(array $input, array $copy, ?int $workspaceId = null): array
+    {
+        $workflow = $this->prompts->workflow('poster_prompt');
+        $feature = $workflow['feature'] ?? 'copywriting';
+        $modelId = $this->modelId($feature, $workspaceId);
+        $cacheInput = [
+            'topic' => trim((string) ($input['topic'] ?? '')),
+            'pillar' => trim((string) ($input['pillar'] ?? '')),
+            'style' => (string) ($input['style'] ?? 'photography'),
+            'aspect_ratio' => (string) ($input['aspect_ratio'] ?? '1:1'),
+            'hook' => trim((string) ($copy['hook'] ?? '')),
+            'body' => trim((string) ($copy['body'] ?? '')),
+            'poster_brief' => trim((string) ($copy['poster_brief'] ?? '')),
+        ];
+
+        return $this->cache->remember('ready_post_image_prompt', $workspaceId, $modelId, $cacheInput, function () use ($cacheInput, $workspaceId, $workflow, $feature) {
+            $system = $this->prompts->systemPrompt('senior art director untuk social media AI image prompt', $workspaceId);
+            $prompt = <<<PROMPT
+            Buat prompt gambar AI yang terstruktur untuk visual pendamping post Threads/Instagram.
+
+            Brief konten:
+            {$cacheInput['topic']}
+
+            Pilar:
+            {$cacheInput['pillar']}
+
+            Hook:
+            {$cacheInput['hook']}
+
+            Body:
+            {$cacheInput['body']}
+
+            Poster brief awal:
+            {$cacheInput['poster_brief']}
+
+            Style wajib:
+            {$cacheInput['style']}
+
+            Aspect ratio wajib:
+            {$cacheInput['aspect_ratio']}
+
+            Output JSON object valid:
+            {
+              "objective": "tujuan visual singkat dalam English",
+              "subject": "foreground subject spesifik dalam English",
+              "scene": "scene/context spesifik dalam English",
+              "props": ["prop visual relevan tanpa teks"],
+              "composition": "komposisi, focal point, depth, negative space",
+              "palette": "palette warna",
+              "lighting": "lighting dan finishing",
+              "visual_prompt": "single polished English image prompt, 120-220 words, no markdown",
+              "negative_notes": ["hal yang harus dihindari"]
+            }
+
+            Aturan:
+            - Prompt harus spesifik ke brief, bukan generik.
+            - Harus cocok dengan style dan aspect ratio yang dipilih user.
+            - Jangan minta teks, huruf, angka, chart labels, app labels, logo, watermark, atau screenshot di gambar.
+            - Untuk topik website/marketplace, visualkan migrasi/ownership/control secara simbolik tanpa UI text.
+            - Untuk style 3d, gunakan objek 3D polished, depth, product cards, dashboard shapes, coins/sliders sebagai simbol biaya, bukan foto.
+            - Untuk photography, gunakan adegan realistis natural, bukan stock-photo gelap/blur.
+            - Sisakan negative space untuk overlay teks deterministic.
+            - Jangan tambah klaim bisnis atau angka yang tidak ada di brief.
+            - Jangan tulis penjelasan di luar JSON.
+            PROMPT;
+
+            $result = $this->completeJson($feature, $prompt, $system, $workspaceId, (int) ($workflow['max_tokens'] ?? 900));
+
+            return $this->normalizeReadyPostImagePrompt(is_array($result) ? $result : [], $cacheInput);
+        }, (bool) ($workflow['cache'] ?? true));
+    }
+
     public function generateVariations(string $text, int $count, ?int $workspaceId = null): array
     {
         $workflow = $this->prompts->workflow('copywriting_variations');
@@ -464,6 +536,36 @@ class AIWorkflowService
             'headline' => mb_substr(trim((string) ($result['headline'] ?? $hook)), 0, 80),
             'poster_brief' => mb_substr(trim((string) ($result['poster_brief'] ?? $result['image_prompt'] ?? $body)), 0, 1000),
             'quality_notes' => array_values(array_slice((array) ($result['quality_notes'] ?? []), 0, 4)),
+        ];
+    }
+
+    private function normalizeReadyPostImagePrompt(array $result, array $input): array
+    {
+        $props = array_values(array_filter(array_map('trim', (array) ($result['props'] ?? []))));
+        $negativeNotes = array_values(array_filter(array_map('trim', (array) ($result['negative_notes'] ?? []))));
+        $visualPrompt = trim((string) ($result['visual_prompt'] ?? $result['prompt'] ?? $input['poster_brief'] ?? $input['topic'] ?? ''));
+
+        if ($visualPrompt === '') {
+            $visualPrompt = trim(implode('. ', array_filter([
+                $input['topic'] ?? '',
+                $input['poster_brief'] ?? '',
+                "Style: {$input['style']}",
+                "Aspect ratio: {$input['aspect_ratio']}",
+            ])));
+        }
+
+        return [
+            'objective' => mb_substr(trim((string) ($result['objective'] ?? 'support the caption with a premium ready-to-post visual')), 0, 180),
+            'subject' => mb_substr(trim((string) ($result['subject'] ?? 'Indonesian small business owner using a website dashboard in a tidy workspace')), 0, 260),
+            'scene' => mb_substr(trim((string) ($result['scene'] ?? 'modern Indonesian small business workspace with technology cues')), 0, 260),
+            'props' => array_slice($props, 0, 8),
+            'composition' => mb_substr(trim((string) ($result['composition'] ?? 'single coherent scene, clear focal point, balanced negative space, polished editorial poster composition')), 0, 300),
+            'palette' => mb_substr(trim((string) ($result['palette'] ?? 'deep navy, clean white, fresh green, warm amber accent')), 0, 180),
+            'lighting' => mb_substr(trim((string) ($result['lighting'] ?? 'crisp soft commercial lighting with premium finish')), 0, 180),
+            'visual_prompt' => mb_substr($visualPrompt, 0, 1500),
+            'negative_notes' => array_slice($negativeNotes, 0, 8),
+            'style' => $input['style'],
+            'aspect_ratio' => $input['aspect_ratio'],
         ];
     }
 

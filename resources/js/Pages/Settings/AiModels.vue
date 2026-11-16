@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import SettingsTabs from '@/Components/SettingsTabs.vue';
 import {
     IconSparkles, IconFileText, IconPhoto, IconBulb, IconPlus,
     IconBolt, IconCoins, IconClock, IconCircleCheck, IconChevronDown,
@@ -37,8 +38,8 @@ const featureIcons = {
 };
 
 const featureLabels = {
-    hook_generator: 'Hook Generator',
-    copywriting: 'Copywriting AI',
+    hook_generator: 'Hook Library',
+    copywriting: 'Generate Post Lengkap',
     image_generation: 'Image Generation',
     insight: 'Daily Insights',
 };
@@ -137,6 +138,8 @@ const formatNumber = (n) => {
 
         <p class="text-body-sm text-on-surface-variant mb-6">Konfigurasi provider dan parameter model AI untuk berbagai fitur platform.</p>
 
+        <SettingsTabs active="ai-models" />
+
         <!-- ═══════════════════════════════════════════ -->
         <!-- AI USAGE DASHBOARD                         -->
         <!-- ═══════════════════════════════════════════ -->
@@ -194,7 +197,7 @@ const formatNumber = (n) => {
                             <IconCircleCheck :size="20" class="text-green-500" />
                         </div>
                         <div>
-                            <p class="text-2xl font-bold text-on-background">{{ usageStats.success_rate_today || 100 }}%</p>
+                            <p class="text-2xl font-bold text-on-background">{{ usageStats.success_rate_today ?? 100 }}%</p>
                             <p class="text-xs text-on-surface-variant">Success Rate</p>
                         </div>
                     </div>

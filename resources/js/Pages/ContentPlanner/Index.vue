@@ -119,11 +119,11 @@ const submitPillar = () => {
 </script>
 
 <template>
-    <Head title="Content Planner" />
+    <Head title="Kalender Konten" />
 
     <AppLayout>
         <template #header>
-            <h2 class="text-headline-md font-bold text-primary">Content Planner</h2>
+            <h2 class="text-headline-md font-bold text-primary">Kalender Konten</h2>
         </template>
 
         <template #actions>

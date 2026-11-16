@@ -1,11 +1,8 @@
 <script setup>
-import { computed } from 'vue';
-import { Head, useForm, Link, usePage } from '@inertiajs/vue3';
+import { Head, useForm } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import { IconSettings, IconPlus, IconDeviceFloppy, IconBrandThreads, IconClock, IconWorld } from '@tabler/icons-vue';
-
-const page = usePage();
-const isAdmin = computed(() => ['owner', 'admin'].includes(page.props.auth?.user?.role));
+import SettingsTabs from '@/Components/SettingsTabs.vue';
 
 const props = defineProps({
     workspace: { type: Object, required: true },
@@ -35,22 +32,7 @@ const submit = () => {
             </a>
         </template>
 
-        <!-- Settings Tabs -->
-        <div class="flex gap-1 mb-8 border-b border-outline-variant">
-            <Link
-                :href="route('settings.general')"
-                class="px-4 py-2.5 text-sm font-semibold border-b-2 border-primary text-primary"
-            >
-                Umum
-            </Link>
-            <Link
-                v-if="isAdmin"
-                :href="route('settings.ai-models')"
-                class="px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-on-surface-variant hover:text-on-surface hover:border-outline transition-colors"
-            >
-                AI Models
-            </Link>
-        </div>
+        <SettingsTabs active="general" />
 
         <div class="max-w-2xl">
             <form @submit.prevent="submit" class="space-y-8">

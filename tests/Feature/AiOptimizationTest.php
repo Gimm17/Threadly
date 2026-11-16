@@ -2,12 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GeneratePosterImageJob;
 use App\Models\AiModelConfig;
 use App\Models\GeneratedMedia;
+use App\Models\GeneratedPost;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -114,6 +118,7 @@ class AiOptimizationTest extends TestCase
     public function test_poster_workflow_stores_enhanced_prompt_and_metadata(): void
     {
         Storage::fake('public');
+        Queue::fake();
 
         $base64 = base64_encode('fake-image');
         Http::fake([
@@ -154,6 +159,7 @@ class AiOptimizationTest extends TestCase
     public function test_ready_post_generates_copy_and_image_media(): void
     {
         Storage::fake('public');
+        Bus::fake();
 
         $base64 = base64_encode('ready-post-image');
         $checkSymbol = "\u{2705}";
@@ -189,7 +195,7 @@ class AiOptimizationTest extends TestCase
                         ],
                     ]],
                     'usage' => ['prompt_tokens' => 20, 'completion_tokens' => 0, 'total_tokens' => 20],
-                ]),
+                ])
         ]);
 
         $response = $this->actingAs($this->user)
@@ -202,8 +208,13 @@ class AiOptimizationTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('post.hook', 'Admin chat mulai kewalahan?')
+            ->assertJsonPath('generated_post.status', 'generated')
+            ->assertJsonPath('generated_post.prompt', 'Buat post edukasi tentang merapikan admin chat UMKM')
+            ->assertJsonPath('image_prompt.status', 'queued')
+            ->assertJsonPath('image_prompt.style', 'photography')
+            ->assertJsonPath('image_prompt.aspect_ratio', '1:1')
             ->assertJsonPath('media.generation_mode', 'ready-post')
-            ->assertJsonPath('media.generation_status', 'completed');
+            ->assertJsonPath('media.generation_status', 'queued');
 
         $body = (string) $response->json('post.body');
 
@@ -212,15 +223,40 @@ class AiOptimizationTest extends TestCase
         $this->assertStringContainsString('#DigitalisasiUMKM', $body);
 
         $media = GeneratedMedia::withoutGlobalScopes()->firstOrFail();
+        $generatedPost = GeneratedPost::withoutGlobalScopes()->firstOrFail();
 
         $this->assertSame('Chat Lebih Rapi', $media->overlay_config['headline']);
         $this->assertStringContainsString('no visible text', $media->enhanced_prompt);
+        $this->assertSame('queued', $media->generation_status);
+        $this->assertSame($this->workspace->id, $generatedPost->workspace_id);
+        $this->assertSame($media->id, $generatedPost->media_id);
+        $this->assertSame('generated', $generatedPost->status);
+        $this->assertSame('photography', $generatedPost->metadata['image_prompt']['style']);
+        $this->assertStringContainsString('customer communication', $generatedPost->metadata['image_prompt']['visual_prompt']);
+        Http::assertSentCount(1);
+        Bus::assertDispatched(GeneratePosterImageJob::class);
+
+        $job = new GeneratePosterImageJob($media->id, [
+            'style' => 'photography',
+            'aspect_ratio' => '1:1',
+            'quality' => 'auto',
+            'background' => 'auto',
+        ]);
+        $job->handle(app(\App\Services\AIService::class));
+
+        $media->refresh();
+
+        $this->assertSame('completed', $media->generation_status);
         Storage::disk('public')->assertExists($media->file_path);
         Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => data_get($request->data(), 'size') === '1024x1024'
+            && data_get($request->data(), 'modalities.1') === 'image');
     }
 
     public function test_ready_post_keeps_copy_when_image_generation_fails(): void
     {
+        Bus::fake();
+
         Http::fake([
             'https://api.tokenrouter.com/v1/chat/completions' => Http::sequence()
                 ->push([
@@ -239,7 +275,9 @@ class AiOptimizationTest extends TestCase
                     ]],
                     'usage' => ['prompt_tokens' => 80, 'completion_tokens' => 80, 'total_tokens' => 160],
                 ])
-                ->push(['error' => ['message' => 'provider timeout']], 504),
+                ->push(['error' => ['message' => 'provider timeout']], 504)
+                ->push(['error' => ['message' => 'provider timeout']], 504)
+                ->push(['error' => ['message' => 'provider timeout']], 504)
         ]);
 
         $this->actingAs($this->user)
@@ -252,7 +290,102 @@ class AiOptimizationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('post.hook', 'Marketplace terasa makin berat?')
-            ->assertJsonPath('media', null)
-            ->assertJsonPath('image_error', 'Copy berhasil dibuat, tetapi gambar AI belum selesai dibuat. Coba generate gambar ulang di Image Studio.');
+            ->assertJsonPath('generated_post.status', 'generated')
+            ->assertJsonPath('image_prompt.status', 'queued')
+            ->assertJsonPath('image_prompt.style', '3d')
+            ->assertJsonPath('media.generation_status', 'queued')
+            ->assertJsonPath('image_error', null);
+
+        $this->assertDatabaseHas('generated_posts', [
+            'workspace_id' => $this->workspace->id,
+            'prompt' => 'Migrasi dari marketplace ke website sendiri',
+            'status' => 'generated',
+        ]);
+
+        $generatedPost = GeneratedPost::withoutGlobalScopes()->firstOrFail();
+        $media = GeneratedMedia::withoutGlobalScopes()->findOrFail($generatedPost->media_id);
+        Bus::assertDispatched(GeneratePosterImageJob::class);
+
+        $job = new GeneratePosterImageJob($media->id, [
+            'style' => '3d',
+            'aspect_ratio' => '1:1',
+            'quality' => 'auto',
+            'background' => 'auto',
+        ]);
+
+        try {
+            $job->handle(app(\App\Services\AIService::class));
+        } catch (\Throwable $e) {
+            $job->failed($e);
+        }
+
+        $this->assertSame('failed', $media->fresh()->generation_status);
+        $this->assertStringContainsString('AI Image API error [504]', $media->fresh()->error_message);
+    }
+
+    public function test_image_job_falls_back_when_selected_model_returns_404(): void
+    {
+        Storage::fake('public');
+
+        AiModelConfig::withoutGlobalScopes()
+            ->where('workspace_id', $this->workspace->id)
+            ->where('feature', 'image_generation')
+            ->update(['model_id' => 'openai/gpt-5-image']);
+
+        $base64 = base64_encode('fallback-image');
+        $media = GeneratedMedia::withoutGlobalScopes()->create([
+            'workspace_id' => $this->workspace->id,
+            'created_by' => $this->user->id,
+            'type' => 'image',
+            'file_path' => '',
+            'file_name' => '',
+            'mime_type' => 'image/png',
+            'file_size' => 0,
+            'prompt' => 'Poster edukasi AI untuk UMKM',
+            'original_prompt' => 'Poster edukasi AI untuk UMKM',
+            'enhanced_prompt' => 'Create a premium social media poster for Indonesian UMKM, no visible text.',
+            'provider' => 'tokenrouter',
+            'model_id' => 'openai/gpt-5-image',
+            'style' => 'photography',
+            'aspect_ratio' => '4:5',
+            'generation_mode' => 'ready-post',
+            'generation_status' => 'queued',
+        ]);
+
+        Http::fake([
+            'https://api.tokenrouter.com/v1/images/generations' => Http::response(['error' => ['message' => 'openai_error']], 404),
+            'https://api.tokenrouter.com/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'message' => [
+                        'content' => [
+                            [
+                                'type' => 'image_url',
+                                'image_url' => ['url' => "data:image/png;base64,{$base64}"],
+                            ],
+                        ],
+                    ],
+                ]],
+                'usage' => ['prompt_tokens' => 20, 'completion_tokens' => 0, 'total_tokens' => 20],
+            ]),
+        ]);
+
+        $job = new GeneratePosterImageJob($media->id, [
+            'style' => 'photography',
+            'aspect_ratio' => '4:5',
+            'quality' => 'auto',
+            'background' => 'auto',
+        ]);
+        $job->handle(app(\App\Services\AIService::class));
+
+        $media->refresh();
+
+        $this->assertSame('completed', $media->generation_status);
+        $this->assertSame('google/gemini-3.1-flash-image-preview', $media->model_id);
+        Storage::disk('public')->assertExists($media->file_path);
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.tokenrouter.com/v1/images/generations'
+            && data_get($request->data(), 'model') === 'openai/gpt-5-image');
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.tokenrouter.com/v1/chat/completions'
+            && data_get($request->data(), 'model') === 'google/gemini-3.1-flash-image-preview'
+            && data_get($request->data(), 'size') === '1024x1280');
     }
 }

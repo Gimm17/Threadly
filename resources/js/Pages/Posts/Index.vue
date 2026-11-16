@@ -13,6 +13,7 @@ const statusTabs = [
     { label: 'Draft', value: 'draft' },
     { label: 'Scheduled', value: 'scheduled' },
     { label: 'Published', value: 'published' },
+    { label: 'Failed', value: 'failed' },
 ];
 
 const filterByStatus = (status) => {
@@ -31,10 +32,10 @@ const badgeClass = (status) => {
 </script>
 
 <template>
-    <Head title="Post Scheduler" />
+    <Head title="Draft & Jadwal" />
     <AppLayout>
         <template #header>
-            <h2 class="text-headline-md font-bold text-primary">Post Scheduler</h2>
+            <h2 class="text-headline-md font-bold text-primary">Draft & Jadwal</h2>
         </template>
         <template #actions>
             <div class="hidden md:flex items-center border border-outline-variant/50 rounded-lg overflow-hidden">
@@ -46,7 +47,7 @@ const badgeClass = (status) => {
                 >{{ tab.label }}</button>
             </div>
             <a :href="route('posts.create')" class="flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold text-label-caps px-4 py-2 rounded-lg hover:brightness-105 transition-all">
-                <IconPlus :size="16" :stroke-width="2" /> Buat Post
+                <IconPlus :size="16" :stroke-width="2" /> Buat Konten
             </a>
         </template>
 
@@ -74,18 +75,29 @@ const badgeClass = (status) => {
                             <button class="text-on-surface-variant hover:text-on-background p-1 rounded-lg hover:bg-surface-container transition-colors">
                                 <IconDotsVertical :size="18" :stroke-width="1.5" />
                             </button>
-                            <div v-if="post.status === 'draft'" class="text-right mt-1">
-                                <span class="text-body-sm text-on-surface-variant">Belum dijadwalkan</span>
-                                <Link :href="route('posts.edit', post.id)" class="text-body-sm text-secondary hover:underline block">Edit</Link>
+                            <div class="text-right mt-1">
+                                <span class="text-body-sm text-on-surface-variant block">
+                                    {{ post.scheduled_display || post.published_display || (post.status === 'published' ? 'Sudah published' : post.status === 'failed' ? 'Publish gagal' : 'Belum dijadwalkan') }}
+                                </span>
+                                <div class="flex items-center justify-end gap-2 mt-1">
+                                    <Link
+                                        :href="route('posts.show', post.id)"
+                                        class="inline-flex items-center gap-1 text-body-sm font-semibold text-primary hover:underline"
+                                    >
+                                        <IconEye :size="14" :stroke-width="1.7" />
+                                        Detail
+                                    </Link>
+                                    <Link :href="route('posts.edit', post.id)" class="text-body-sm text-secondary hover:underline">Edit</Link>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
             <div v-if="posts.data?.length === 0" class="card text-center py-12">
-                <p class="text-on-surface-variant mb-4">Belum ada post.</p>
+                <p class="text-on-surface-variant mb-4">Belum ada Draft, Scheduled, Published, atau Failed post.</p>
                 <a :href="route('posts.create')" class="inline-flex items-center gap-1.5 bg-primary-container text-on-primary-container font-bold text-sm px-4 py-2 rounded-lg">
-                    <IconPlus :size="16" :stroke-width="2" /> Buat Post Pertama
+                    <IconPlus :size="16" :stroke-width="2" /> Buat Konten Pertama
                 </a>
             </div>
         </div>

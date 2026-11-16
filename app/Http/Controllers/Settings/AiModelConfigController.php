@@ -7,9 +7,9 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\AiModelConfig;
 use App\Models\AiUsageLog;
+use App\Support\WorkspaceTime;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,13 +17,15 @@ class AiModelConfigController extends Controller
 {
     public function index(): Response
     {
-        $wsId = auth()->user()->workspace_id;
+        $user = auth()->user();
+        $wsId = $user->workspace_id;
+        $workspaceTimezone = WorkspaceTime::timezone($user->workspace?->timezone);
+        [$todayStartUtc, $todayEndUtc] = WorkspaceTime::todayUtcBounds($workspaceTimezone);
 
-        // ─── AI Usage Stats (today) ───
-        $today = Carbon::today();
+        // AI usage stats for the current workspace-local day.
         $todayLogs = AiUsageLog::withoutGlobalScopes()
             ->where('workspace_id', $wsId)
-            ->whereDate('created_at', $today);
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc]);
 
         $totalRequestsToday = (clone $todayLogs)->count();
         $totalTokensToday = (clone $todayLogs)->sum('total_tokens');
@@ -32,11 +34,11 @@ class AiModelConfigController extends Controller
             ? round((clone $todayLogs)->where('is_success', true)->count() / $totalRequestsToday * 100)
             : 100;
 
-        // ─── Usage per feature (last 7 days) ───
+        // Usage per feature during the last 7 workspace-local days.
         $last7Days = AiUsageLog::withoutGlobalScopes()
             ->where('workspace_id', $wsId)
-            ->where('created_at', '>=', now()->subDays(7))
-            ->selectRaw('feature, COUNT(*) as requests, SUM(total_tokens) as tokens, SUM(cost) as cost')
+            ->where('created_at', '>=', WorkspaceTime::daysAgoUtc($workspaceTimezone, 7))
+            ->selectRaw('feature, COUNT(*) as requests, SUM(COALESCE(total_tokens, 0)) as tokens, SUM(COALESCE(cost, 0)) as cost')
             ->groupBy('feature')
             ->get()
             ->map(fn ($row) => [
@@ -46,7 +48,7 @@ class AiModelConfigController extends Controller
                 'cost' => round((float) $row->cost, 4),
             ]);
 
-        // ─── Recent logs (last 20) ───
+        // Recent logs.
         $recentLogs = AiUsageLog::withoutGlobalScopes()
             ->where('workspace_id', $wsId)
             ->orderByDesc('created_at')
@@ -83,6 +85,7 @@ class AiModelConfigController extends Controller
                 'total_tokens_today' => (int) $totalTokensToday,
                 'total_cost_today' => round((float) $totalCostToday, 4),
                 'success_rate_today' => $successRateToday,
+                'timezone' => $workspaceTimezone,
             ],
             'usagePerFeature' => $last7Days,
             'recentLogs' => $recentLogs,

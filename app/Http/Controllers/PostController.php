@@ -8,6 +8,7 @@ use App\Http\Requests\StorePostRequest;
 use App\Jobs\PublishToThreadsJob;
 use App\Models\ActivityLog;
 use App\Models\ContentPillar;
+use App\Models\GeneratedPost;
 use App\Models\Post;
 use App\Services\MediaUploadService;
 use App\Services\PostReminderService;
@@ -39,8 +40,9 @@ class PostController extends Controller
                     'status_label' => $post->status_label,
                     'status_color' => $post->status_color,
                     'scheduled_at' => $post->scheduled_at?->format('Y-m-d H:i'),
-                    'scheduled_display' => $post->scheduled_at?->translatedFormat('d M Y, H:i') . ' WIB',
+                    'scheduled_display' => $post->scheduled_at ? $post->scheduled_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
                     'published_at' => $post->published_at?->format('Y-m-d H:i'),
+                    'published_display' => $post->published_at ? $post->published_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
                     'pillar' => $post->contentPillar?->name,
                     'pillar_color' => $post->contentPillar?->color_hex,
                     'media' => $post->media->map(fn ($m) => [
@@ -58,14 +60,64 @@ class PostController extends Controller
 
     public function create(): Response
     {
+        $workspace = auth()->user()->workspace;
+
         return Inertia::render('Posts/Create', [
             'pillars' => ContentPillar::active()->ordered()->get(['id', 'name', 'color_hex']),
+            'generatedPosts' => GeneratedPost::with(['media', 'post'])
+                ->latest()
+                ->limit(10)
+                ->get()
+                ->map(fn (GeneratedPost $generatedPost) => $this->generatedPostResponse($generatedPost)),
+            'hasThreadsAccess' => $workspace && filled($workspace->threads_access_token),
+            'prefill' => [
+                'body' => request('content', ''),
+                'hook' => request('hook', ''),
+            ],
         ]);
     }
 
-    public function show(Post $post): RedirectResponse
+    public function show(Post $post): Response
     {
-        return redirect()->route('posts.edit', $post);
+        $post->load(['contentPillar', 'media', 'creator']);
+
+        return Inertia::render('Posts/Show', [
+            'post' => [
+                'id' => $post->id,
+                'body' => $post->body,
+                'hook' => $post->hook,
+                'status' => $post->status,
+                'status_label' => $post->status_label,
+                'status_color' => $post->status_color,
+                'content_pillar_id' => $post->content_pillar_id,
+                'pillar' => $post->contentPillar ? [
+                    'id' => $post->contentPillar->id,
+                    'name' => $post->contentPillar->name,
+                    'color_hex' => $post->contentPillar->color_hex,
+                ] : null,
+                'scheduled_at' => $post->scheduled_at?->format('Y-m-d H:i'),
+                'scheduled_display' => $post->scheduled_at ? $post->scheduled_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
+                'published_at' => $post->published_at?->format('Y-m-d H:i'),
+                'published_display' => $post->published_at ? $post->published_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
+                'publish_mode' => $post->publish_mode,
+                'link_url' => $post->link_url,
+                'notes' => $post->notes,
+                'threads_post_id' => $post->threads_post_id,
+                'created_at' => $post->created_at ? $post->created_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
+                'updated_at' => $post->updated_at ? $post->updated_at->translatedFormat('d M Y, H:i') . ' WIB' : null,
+                'creator' => $post->creator?->name,
+                'media' => $post->media->map(fn ($m) => [
+                    'id' => $m->id,
+                    'url' => $m->url,
+                    'type' => $m->type,
+                    'file_name' => $m->file_name,
+                    'mime_type' => $m->mime_type,
+                    'file_size' => $m->file_size,
+                    'is_ai_generated' => $m->is_ai_generated,
+                    'ai_prompt' => $m->ai_prompt,
+                ]),
+            ],
+        ]);
     }
 
     public function store(StorePostRequest $request): RedirectResponse
@@ -215,5 +267,29 @@ class PostController extends Controller
                 ...$extra,
             ]),
         ]);
+    }
+
+    private function generatedPostResponse(GeneratedPost $generatedPost): array
+    {
+        return [
+            'id' => $generatedPost->id,
+            'prompt' => $generatedPost->prompt,
+            'hook' => $generatedPost->hook,
+            'body' => $generatedPost->body,
+            'hashtags' => $generatedPost->hashtags ?? [],
+            'status' => $generatedPost->status,
+            'created_at' => $generatedPost->created_at?->diffForHumans(),
+            'post_id' => $generatedPost->post_id,
+            'post_url' => $generatedPost->post_id ? route('posts.edit', $generatedPost->post_id) : null,
+            'image_prompt' => $generatedPost->metadata['image_prompt'] ?? null,
+            'image_error' => $generatedPost->metadata['image_error'] ?? null,
+            'media' => $generatedPost->media ? [
+                'id' => $generatedPost->media->id,
+                'url' => $generatedPost->media->url,
+                'file_name' => $generatedPost->media->file_name,
+                'mime_type' => $generatedPost->media->mime_type,
+                'file_size' => $generatedPost->media->file_size,
+            ] : null,
+        ];
     }
 }

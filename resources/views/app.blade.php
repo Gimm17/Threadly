@@ -4,8 +4,11 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="description" content="ThreadsAI Manager — Social Content Intelligence Platform by Gimora Digital">
+        <meta name="theme-color" content="#1A3263">
 
         <title inertia>{{ config('app.name', 'ThreadsAI') }}</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+        <link rel="alternate icon" href="/favicon.ico">
 
         <!-- Scripts -->
         @routes

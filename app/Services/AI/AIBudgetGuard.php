@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\AI;
 
 use App\Models\AiUsageLog;
+use App\Models\Workspace;
+use App\Support\WorkspaceTime;
 use RuntimeException;
 
 class AIBudgetGuard
@@ -16,9 +18,12 @@ class AIBudgetGuard
             return;
         }
 
+        $timezone = Workspace::query()->whereKey($workspaceId)->value('timezone');
+        [$todayStartUtc, $todayEndUtc] = WorkspaceTime::todayUtcBounds($timezone);
+
         $spentToday = (float) AiUsageLog::withoutGlobalScopes()
             ->where('workspace_id', $workspaceId)
-            ->whereDate('created_at', now()->toDateString())
+            ->whereBetween('created_at', [$todayStartUtc, $todayEndUtc])
             ->sum('cost');
 
         if (($spentToday + $estimatedCost) > $limit) {

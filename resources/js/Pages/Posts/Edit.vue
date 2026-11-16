@@ -145,7 +145,7 @@ const improveText = async () => {
     aiLoading.value = 'improve';
     aiError.value = '';
     try {
-        const res = await fetch(route('ai.generate-hashtags'), {
+        const res = await fetch(route('ai.improve-text'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -181,7 +181,7 @@ const suggestHashtags = async () => {
     aiLoading.value = 'hashtag';
     aiError.value = '';
     try {
-        const res = await fetch(route('ai.improve-text'), {
+        const res = await fetch(route('ai.generate-hashtags'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
