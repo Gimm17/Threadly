@@ -20,4 +20,4 @@ php artisan key:generate && php artisan migrate --seed
 npm run dev & php artisan serve
 ```
 
-> Akun seed lokal default: `admin@gimoradigital.id` / `password` · Panduan deploy cPanel lihat [`HOSTING_CHANGES.md`](HOSTING_CHANGES.md).
+> Akun seed lokal default: `admin@gimoradigital.id` / `password` · Dukungan driver database queue untuk shared hosting cPanel.
